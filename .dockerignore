@@ -12,5 +12,6 @@ build/
 scripts/benchmarks/reports/
 .env
 .env.*
+assets/
 Dockerfile
 docker-compose.yml

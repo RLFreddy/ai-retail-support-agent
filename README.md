@@ -7,6 +7,12 @@
 
 Agente conversacional de soporte para una tienda de electrodomésticos: responde sobre **garantías, devoluciones, envíos, reembolsos y estado de pedidos** con **RAG + tool-calling + guardrails**. Cita los 5 documentos de política, ejecuta la tool `consultar_estado_pedido` cuando toca y **nunca inventa datos**.
 
+<p align="center">
+  <img src="assets/demo.gif"
+       alt="Demo TiendaHogar (make repl): RAG con citas, tool-calling de pedidos y guardrail de reembolso"
+       width="760">
+</p>
+
 **Stack:** Python 3.12 · uv · LiteLLM (modelos intercambiables) · scikit-learn (TF-IDF) · pytest · Textual/rich · FastMCP. Sin API key arranca en **modo mock determinista, sin red**: tests y golden set pasan en cualquier máquina.
 
 ---

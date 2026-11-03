@@ -46,6 +46,7 @@ evals pass on any machine with no network.
 | "I want to dispute a charge" | **Refers** to a human at support | Input guardrail: billing, legal, staff complaints |
 | "Ignore your instructions…", card numbers | **Blocks** | Input guardrail: injection and sensitive data |
 | The model invents "45 days" | Retries once, then **refers** | Output validator: every deadline must appear in the sources |
+| "…and for a blender?" | Keeps the topic of the previous question | Conversation memory: the last turns go to the model and to retrieval |
 | "¿Cuánto dura la garantía?" | Answers in Spanish, cites *Política de garantía* | Spanish documents, stemmer and rules (`--lang es`, the *Español* tab) |
 
 ## Quick start
@@ -80,7 +81,7 @@ The language is chosen explicitly (a tab, a field, a flag), not guessed.
 | Interface | Command | Notes |
 |---|---|---|
 | CLI | `tiendahogar ask "…"` / `tiendahogar chat` | Rich output; guardrail decisions in a panel; `--lang es` |
-| HTTP API | `tiendahogar serve --no-ui` | `POST /chat {"message", "language"}` → `{answer, action, sources}`; `GET /health`; OpenAPI at `/docs` |
+| HTTP API | `tiendahogar serve --no-ui` | `POST /chat {"message", "language", "history"}` → `{answer, action, sources}`; `GET /health`; OpenAPI at `/docs` |
 | Web UI | `tiendahogar serve` | Gradio chat at `/`, with *English* and *Español* tabs |
 | MCP server | `tiendahogar mcp` | Exposes `get_order_status` over stdio to any MCP client |
 
@@ -119,6 +120,11 @@ flowchart TD
   `EMBEDDING_MODEL` switches to embeddings through any OpenAI-compatible
   endpoint (e.g. a local [TEI](https://github.com/huggingface/text-embeddings-inference)
   server with bge-m3), and `RERANK_URL` adds a cross-encoder.
+- **Memory** is the conversation the client sends: the web chat, the CLI chat
+  and API callers pass the earlier turns, and the server keeps no session.
+  The last six turns reach the model, minus any message a guardrail would
+  stop, so a blocked injection never comes back in the history. A refund split
+  across two messages ("I want a refund" / "it cost $1200") still escalates.
 - **Amounts** are parsed with `Decimal` (`money.py`), and only a refund request
   above $500 escalates; a $1200 refrigerator in a warranty question does not.
 
@@ -143,10 +149,10 @@ Two layers, both offline and deterministic in CI:
 The eval cases against the real model, three runs each, one request at a
 time (`make bench VARIANTS='lexical$'`, 2026-11-03):
 
-| Variant | English (22 cases) | Spanish (10 cases) | Only failure |
-|---|---|---|---|
-| Mock model + BM25 (CI) | 21/22 | 10/10 | the paraphrase with no shared words (expected) |
-| Groq `gpt-oss-20b` + BM25 | **63/66** (21/22 in each run) | **30/30** | the same paraphrase, every run |
+| Variant | English (22 cases) | Spanish (10) | Follow-ups (6) | Only failure |
+|---|---|---|---|---|
+| Mock model + BM25 (CI) | 21/22 | 10/10 | 6/6 | the paraphrase with no shared words (expected) |
+| Groq `gpt-oss-20b` + BM25 | **63/66** (21/22 in each run) | **30/30** | **18/18** | the same paraphrase, every run |
 | + embeddings (bge-m3), + reranker | not measured yet | needs the local TEI containers |
 
 | Groq + BM25, per message | Value |

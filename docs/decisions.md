@@ -116,6 +116,30 @@ so no interface can skip a guardrail. The API endpoint is synchronous on
 purpose: FastAPI runs it in a thread pool, which keeps the agent code simple
 and does not block the event loop.
 
+## Conversation memory sent by the client
+
+The agent takes the earlier turns as an argument instead of storing sessions:
+the web chat already keeps the history, the CLI chat accumulates it, and API
+callers send it with each message. No session store, no expiry, and any
+replica can answer any message. Pydantic AI's `message_history` carries the
+turns to the model; no memory library is needed for a single conversation.
+
+Three rules keep the history from weakening the guardrails:
+
+- Only the last six turns are sent, which bounds tokens and cost.
+- Earlier customer messages that a guardrail would stop are dropped with their
+  reply, so a blocked injection is never sent to the model in a later turn.
+- The input rules also run over the previous and the current message
+  together, but only an escalation counts there: "I want a refund" followed
+  by "it cost $1200" escalates, while an old refused topic does not block
+  every later message.
+
+Retrieval uses the current message, and adds the previous question only when
+the message matches nothing alone ("and for a blender?").
+
+A client could forge assistant turns. The output guardrails and the grounding
+check still run on every answer, and assistant turns never count as sources.
+
 ## Two languages, chosen explicitly
 
 Spanish is a first-class language, not a translation layer: each language has
@@ -154,7 +178,8 @@ by default and costs nothing when off.
 
 ## Known limitations
 
-- Stateless: each message is answered on its own, without conversation memory.
+- Memory lasts one conversation and lives in the client; nothing is stored
+  between visits.
 - Order lookup does not authenticate the customer.
 - Two languages only; adding one means its documents, stop words, rule
   alternations and replies.

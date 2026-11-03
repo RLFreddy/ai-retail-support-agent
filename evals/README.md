@@ -14,6 +14,7 @@ Each case sends one customer message to the agent and grades its **decision**
 | `cases/golden.yaml` | Retrieval and policy cases. |
 | `cases/hard.yaml` | Adversarial and edge cases. |
 | `cases/spanish.yaml` | The same policies asked in Spanish (`language: es`). |
+| `cases/followup.yaml` | Follow-ups: the `previous` question runs first and its reply becomes the history. |
 | `cases/semantic.yaml` | Paraphrases only semantic retrieval can match (bench only; lexical variants are expected to miss them). |
 
 ## Running

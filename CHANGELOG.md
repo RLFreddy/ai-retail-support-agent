@@ -2,6 +2,11 @@
 
 ### Feat
 
+- **ui**: add English and Spanish tabs, a language field to the API and --lang to the CLI
+- **agent**: answer in Spanish with Spanish documents and replies
+- **retrieval**: index each language with its own stemmer and stop words
+- **guardrails**: apply every policy to Spanish messages and answers
+- **knowledge**: add the Spanish policy documents and prompt
 - **agent**: report token usage and latency for every reply
 - **ui**: use the Soft theme and re-record the web demo in dark mode
 - **api**: serve the agent over HTTP with a Gradio chat UI
@@ -15,6 +20,9 @@
 
 ### Fix
 
+- **guardrails**: read 'between 5 and 7' and 'entre 5 y 7' as deadline ranges
+- **retrieval**: match Spanish verb and noun stems of the same word
+- **cli**: print the web chat and API URLs when serving
 - **agent**: verify grounding in an output validator with one retry
 - **guardrails**: catch paraphrased injections and stop flagging invoice requests
 - **guardrails**: parse refund amounts with Decimal and require a refund request

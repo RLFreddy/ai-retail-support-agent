@@ -10,7 +10,9 @@ A customer support agent for a home appliance store. It answers questions about
 **warranties, returns, shipping, refunds and orders** from five policy
 documents, cites its sources, looks orders up with a tool, and hands the
 conversation to a human when a policy says so. It never makes up a deadline or
-approves money it is not allowed to.
+approves money it is not allowed to. It speaks **English and Spanish**: each
+language has its own documents, retrieval analyzer, guardrail rules and
+replies.
 
 <p align="center">
   <img src="assets/demo.gif"
@@ -44,6 +46,7 @@ evals pass on any machine with no network.
 | "I want to dispute a charge" | **Refers** to a human at support | Input guardrail: billing, legal, staff complaints |
 | "Ignore your instructions…", card numbers | **Blocks** | Input guardrail: injection and sensitive data |
 | The model invents "45 days" | Retries once, then **refers** | Output validator: every deadline must appear in the sources |
+| "¿Cuánto dura la garantía?" | Answers in Spanish, cites *Política de garantía* | Spanish documents, stemmer and rules (`--lang es`, the *Español* tab) |
 
 ## Quick start
 
@@ -52,7 +55,7 @@ git clone https://github.com/RLFreddy/ai-retail-support-agent && cd ai-retail-su
 uv sync --all-extras
 
 uv run tiendahogar ask "How long is the warranty on a refrigerator?"
-uv run tiendahogar chat      # interactive chat in the terminal
+uv run tiendahogar chat      # interactive chat in the terminal (--lang es for Spanish)
 uv run tiendahogar serve     # web chat at http://localhost:7860, API at /chat
 ```
 
@@ -71,18 +74,21 @@ make ask Q="Where is my order ORD-1002?"
 
 ## Interfaces
 
-All of them share one agent, so they apply the same guardrails.
+All of them share one agent per language, so they apply the same guardrails.
+The language is chosen explicitly (a tab, a field, a flag), not guessed.
 
 | Interface | Command | Notes |
 |---|---|---|
-| CLI | `tiendahogar ask "…"` / `tiendahogar chat` | Rich output; guardrail decisions in a panel |
-| HTTP API | `tiendahogar serve --no-ui` | `POST /chat {"message"}` → `{answer, action, sources}`; `GET /health`; OpenAPI at `/docs` |
-| Web UI | `tiendahogar serve` | Gradio chat mounted at `/` |
+| CLI | `tiendahogar ask "…"` / `tiendahogar chat` | Rich output; guardrail decisions in a panel; `--lang es` |
+| HTTP API | `tiendahogar serve --no-ui` | `POST /chat {"message", "language"}` → `{answer, action, sources}`; `GET /health`; OpenAPI at `/docs` |
+| Web UI | `tiendahogar serve` | Gradio chat at `/`, with *English* and *Español* tabs |
 | MCP server | `tiendahogar mcp` | Exposes `get_order_status` over stdio to any MCP client |
 
 ```bash
 curl -s localhost:7860/chat -H 'content-type: application/json' \
   -d '{"message": "Can I return a blender after 20 days?"}'
+curl -s localhost:7860/chat -H 'content-type: application/json' \
+  -d '{"message": "¿Dónde está mi pedido ORD-1001?", "language": "es"}'
 ```
 
 ## Architecture
@@ -122,7 +128,7 @@ The reasoning behind each choice is in [docs/decisions.md](docs/decisions.md).
 
 Two layers, both offline and deterministic in CI:
 
-- **Unit and regression tests** (`make test`, 130+ tests): retrieval, tools,
+- **Unit and regression tests** (`make test`, 170+ tests): retrieval, tools,
   guardrails, money parsing, the agent loop with scripted model responses,
   the API, the CLI and the MCP server. The suite is hermetic:
   [pytest-socket](https://github.com/miketheman/pytest-socket) blocks the
@@ -134,13 +140,13 @@ Two layers, both offline and deterministic in CI:
 
 ### Results
 
-The 22 eval cases against the real model, three runs each, one request at a
+The eval cases against the real model, three runs each, one request at a
 time (`make bench VARIANTS='lexical$'`, 2026-11-03):
 
-| Variant | Cases passed | Only failure |
-|---|---|---|
-| Mock model + BM25 (CI) | 21/22 | the paraphrase with no shared words (expected) |
-| Groq `gpt-oss-20b` + BM25 | **63/66** (21/22 in each run) | the same paraphrase, every run |
+| Variant | English (22 cases) | Spanish (10 cases) | Only failure |
+|---|---|---|---|
+| Mock model + BM25 (CI) | 21/22 | 10/10 | the paraphrase with no shared words (expected) |
+| Groq `gpt-oss-20b` + BM25 | **63/66** (21/22 in each run) | **30/30** | the same paraphrase, every run |
 | + embeddings (bge-m3), + reranker | not measured yet | needs the local TEI containers |
 
 | Groq + BM25, per message | Value |
@@ -162,6 +168,10 @@ what the remaining bench variants measure.
   business days" with a non-breaking hyphen (U+2011). The validator saw an
   unknown deadline and referred a correct answer to a human. Deadlines are now
   normalised across every Unicode dash, with a regression test.
+- **A range the grounding check read as one number.** In Spanish the real
+  model wrote "entre 5 y 7 días hábiles". The validator only saw "7 días",
+  judged it invented and referred a correct answer. "between 5 and 7" had the
+  same bug in English; both now read as the range in the policy.
 - **A silent fallback.** A `.env` written for the old LiteLLM format
   (`groq/...` instead of `groq:...`) made the agent fall back to the mock
   without failing. `LLM_MODEL` is now validated at startup.
@@ -202,7 +212,7 @@ src/tiendahogar/
   agent.py        Pydantic AI agent, grounding validator, guardrail flow
   guardrails.py   input and output policy checks
   retrieval.py    BM25, embeddings and reranker retrievers
-  knowledge.py    the five policy documents and the system prompt
+  knowledge.py    the policy documents and system prompt, in English and Spanish
   tools.py        get_order_status
   money.py        refund amount parsing
   mock.py         deterministic offline model
@@ -220,7 +230,7 @@ deploy/           Hugging Face Space config
 This started as a timed technical test for an AI engineer role, delivered in
 Spanish with a custom agent loop, LiteLLM and TF-IDF (tag
 [`v0.1.0`](https://github.com/RLFreddy/ai-retail-support-agent/tree/v0.1.0)).
-Version 1.0 is a rewrite in English: it moves the agent to Pydantic AI,
-replaces TF-IDF with BM25, fixes 17 policy defects found in an audit (each
-with a regression test), and adds the API, web UI, tracing, promptfoo evals,
-strict typing and CI. See the [CHANGELOG](CHANGELOG.md).
+Version 1.0 is a rewrite in English, with Spanish back as a second language:
+it moves the agent to Pydantic AI, replaces TF-IDF with BM25, fixes 17 policy
+defects found in an audit (each with a regression test), and adds the API, web
+UI, tracing, promptfoo evals, strict typing and CI. See the [CHANGELOG](CHANGELOG.md).

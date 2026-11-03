@@ -116,6 +116,21 @@ so no interface can skip a guardrail. The API endpoint is synchronous on
 purpose: FastAPI runs it in a thread pool, which keeps the agent code simple
 and does not block the event loop.
 
+## Two languages, chosen explicitly
+
+Spanish is a first-class language, not a translation layer: each language has
+its own documents, BM25 stemmer and stop words, system prompt and fixed
+replies, and the guardrail rules are the union of both languages, so a message
+cannot dodge a rule by switching language. Deadlines in either language are
+normalized to the same canonical form ("2 a 3 días hábiles" → "2-3 business
+day") before the grounding check.
+
+The customer picks the language (a UI tab, the API's `language` field, the
+CLI's `--lang`) instead of the agent detecting it: detection is unreliable on
+short messages such as "ORD-1002?", and a wrong guess would cite documents in
+the wrong language. With embeddings, a multilingual model such as bge-m3
+could serve both languages from one index; BM25 needs one per language.
+
 ## Observability
 
 Logs are text or JSON lines with the action, sources and latency of each chat
@@ -141,6 +156,7 @@ by default and costs nothing when off.
 
 - Stateless: each message is answered on its own, without conversation memory.
 - Order lookup does not authenticate the customer.
-- Guardrails are English-only rules; other languages fall through to the model.
+- Two languages only; adding one means its documents, stop words, rule
+  alternations and replies.
 - Grounding covers deadlines, not every claim.
 - The real-model bench depends on a third-party API and is not run in CI.

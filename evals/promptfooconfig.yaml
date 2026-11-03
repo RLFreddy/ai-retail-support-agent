@@ -1,0 +1,25 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+# Fast, deterministic evals: mock LLM + offline retrieval, no network, no keys.
+# Run with `make eval`. For the real-model matrix see promptfooconfig.bench.yaml.
+description: TiendaHogar support agent (mock)
+
+prompts:
+  - "{{query}}"
+
+providers:
+  - id: file://provider.py
+    label: mock-offline
+    config:
+      llm: mock
+      embedding_backend: offline
+      rerank: false
+
+defaultTest:
+  assert:
+    - type: python
+      value: file://assertions.py
+
+tests:
+  - file://cases/exam.yaml
+  - file://cases/golden.yaml
+  - file://cases/hard.yaml

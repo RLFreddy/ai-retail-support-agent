@@ -7,7 +7,7 @@ importar Textual) producía ``UnboundLocalError``.
 Los tests son 100% mocks: corren con ``MockLLM + TfidfRetriever``, sin red y
 sin leer el ``.env`` real. Las 4 variantes de la prueba técnica solo se prueban
 como FUNCIÓN PURA (``Settings`` -> etiqueta/panel); el comportamiento real de
-cada variante se mide con ``scripts/benchmarks/``, no aquí.
+cada variante se mide con los evals de ``evals/``, no aquí.
 """
 
 import asyncio

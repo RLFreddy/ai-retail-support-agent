@@ -1,0 +1,32 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+# Benchmark matrix: the same cases across every agent variant.
+# Needs LLM_MODEL's API key in the environment and, for the TEI variants, the
+# embedding (:8080) and reranker (:8001) containers. Run with `make bench`.
+description: TiendaHogar support agent (variant matrix)
+
+prompts:
+  - "{{query}}"
+
+providers:
+  - id: file://provider.py
+    label: mock-offline
+    config: {llm: mock, embedding_backend: offline, rerank: false}
+  - id: file://provider.py
+    label: real-offline
+    config: {llm: real, embedding_backend: offline, rerank: false}
+  - id: file://provider.py
+    label: real-tei
+    config: {llm: real, embedding_backend: tei, rerank: false}
+  - id: file://provider.py
+    label: real-tei-rerank
+    config: {llm: real, embedding_backend: tei, rerank: true}
+
+defaultTest:
+  assert:
+    - type: python
+      value: file://assertions.py
+
+tests:
+  - file://cases/exam.yaml
+  - file://cases/golden.yaml
+  - file://cases/hard.yaml

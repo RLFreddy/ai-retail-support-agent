@@ -2,6 +2,7 @@
 
 ### Feat
 
+- **agent**: report token usage and latency for every reply
 - **ui**: use the Soft theme and re-record the web demo in dark mode
 - **api**: serve the agent over HTTP with a Gradio chat UI
 - add JSON logs and opt-in OpenTelemetry tracing

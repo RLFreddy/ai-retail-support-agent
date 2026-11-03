@@ -132,9 +132,43 @@ Two layers, both offline and deterministic in CI:
   and adversarial inputs. Each case grades the decision (action and cited
   documents), not just the wording. See [evals/](evals/README.md).
 
-`make bench` runs the same cases against the real model in four variants
-(mock, real + BM25, real + embeddings, real + embeddings + reranker) to compare
-retrieval backends.
+### Results
+
+The 22 eval cases against the real model, three runs each, one request at a
+time (`make bench VARIANTS='lexical$'`, 2026-11-03):
+
+| Variant | Cases passed | Only failure |
+|---|---|---|
+| Mock model + BM25 (CI) | 21/22 | the paraphrase with no shared words (expected) |
+| Groq `gpt-oss-20b` + BM25 | **63/66** (21/22 in each run) | the same paraphrase, every run |
+| + embeddings (bge-m3), + reranker | not measured yet | needs the local TEI containers |
+
+| Groq + BM25, per message | Value |
+|---|---|
+| Settled by a guardrail, no model call | 41% of the cases, in milliseconds |
+| Latency with the model, p50 / p95 | 3.1 s / 6.2 s (includes tool calls and retries) |
+| Tokens with the model, average | ~520 input, ~160 output |
+| Cost per 1,000 messages | ~$0.08 at Groq's list price ($0.10 / $0.50 per M tokens) |
+
+The one miss is the reason semantic retrieval exists: "Can I get my purchases
+sent to the countryside?" shares no words with the shipping policy, so BM25
+finds nothing and the agent correctly says it does not know instead of
+guessing. Whether embeddings and the reranker are worth their extra service is
+what the remaining bench variants measure.
+
+### What the evals caught
+
+- **A dash the grounding check did not know.** The real model wrote "5‑10
+  business days" with a non-breaking hyphen (U+2011). The validator saw an
+  unknown deadline and referred a correct answer to a human. Deadlines are now
+  normalised across every Unicode dash, with a regression test.
+- **A silent fallback.** A `.env` written for the old LiteLLM format
+  (`groq/...` instead of `groq:...`) made the agent fall back to the mock
+  without failing. `LLM_MODEL` is now validated at startup.
+- **Policy rules that fired on the wrong messages.** An audit of v0.1 found 17
+  defects, such as escalating "my $1200 refrigerator broke" (a warranty
+  question, not a refund) and treating "send me the invoice" as a billing
+  dispute. Each one is a regression test.
 
 ## Configuration
 

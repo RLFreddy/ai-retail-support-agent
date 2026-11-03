@@ -1,35 +1,33 @@
-# syntax=docker/dockerfile:1
 FROM python:3.12-slim AS builder
 
-COPY --from=ghcr.io/astral-sh/uv:0.11.19 /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.11.19 /uv /bin/uv
 
 ENV UV_LINK_MODE=copy \
-    UV_COMPILE_BYTECODE=1
+    UV_COMPILE_BYTECODE=1 \
+    UV_NO_CACHE=1 \
+    UV_PYTHON_DOWNLOADS=never
 
 WORKDIR /app
 
+# Dependencies first, so code changes reuse this layer.
 COPY pyproject.toml uv.lock ./
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-install-project
+RUN uv sync --locked --no-dev --no-install-project
 
-COPY . .
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --all-extras
+COPY README.md ./
+COPY src ./src
+RUN uv sync --locked --no-dev --no-editable
+
 
 FROM python:3.12-slim
 
-WORKDIR /app
+RUN useradd --create-home --uid 10001 app
+COPY --from=builder --chown=app:app /app/.venv /app/.venv
 
-COPY --from=builder /app/.venv /app/.venv
-COPY --from=builder /app/pyproject.toml /app/pyproject.toml
-COPY --from=builder /app/src /app/src
-COPY --from=builder /app/tests /app/tests
-COPY --from=builder /app/scripts /app/scripts
-COPY --from=builder /app/entrypoint.sh /app/entrypoint.sh
+ENV PATH="/app/.venv/bin:$PATH" \
+    PYTHONUNBUFFERED=1
 
-ENV PATH="/app/.venv/bin:$PATH"
+USER app
+WORKDIR /home/app
 
-RUN chmod +x /app/entrypoint.sh
-
-ENTRYPOINT ["/app/entrypoint.sh"]
-CMD []
+ENTRYPOINT ["tiendahogar"]
+CMD ["ask", "How long is the warranty on a refrigerator?"]

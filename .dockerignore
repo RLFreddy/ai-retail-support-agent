@@ -1,17 +1,7 @@
-.venv/
-.git/
-__pycache__/
-*.py[cod]
-*.egg-info/
-.pytest_cache/
-.ruff_cache/
-.mypy_cache/
-*.zip
-dist/
-build/
-scripts/benchmarks/reports/
-.env
-.env.*
-assets/
-Dockerfile
-docker-compose.yml
+# Only pyproject.toml, uv.lock, README.md and src/ are needed to build.
+*
+!pyproject.toml
+!uv.lock
+!README.md
+!src/
+**/__pycache__

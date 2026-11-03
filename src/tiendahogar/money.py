@@ -1,7 +1,7 @@
 """Money amounts in free text, parsed exactly with ``Decimal``.
 
 Recognized forms: ``$1,200.50``, ``$ 80``, ``USD 1500``, ``1200 dollars``,
-``1,500 USD``. Bare numbers (order ids, days, months) are never amounts.
+``1,500 USD``, ``1200 dólares``. Bare numbers (order ids, days, months) are never amounts.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ REFUND_LIMIT = Decimal(500)
 _NUMBER = r"\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?"
 _AMOUNT_RE = re.compile(
     rf"(?:\$|\busd\b)\s*(?P<prefixed>{_NUMBER})"
-    rf"|(?P<suffixed>{_NUMBER})\s*(?:usd|dollars?|bucks)\b",
+    rf"|(?P<suffixed>{_NUMBER})\s*(?:usd|dollars?|bucks|d[oó]lares)\b",
     re.IGNORECASE,
 )
 

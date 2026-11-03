@@ -58,3 +58,12 @@ def test_describe_settings_with_key_shows_the_model(monkeypatch):
 def test_guardrail_responses_are_shown_in_a_panel(capsys):
     cli.print_response(AgentReply(answer="Please contact support.", action=Action.REFER))
     assert "guardrail: refer" in capsys.readouterr().out
+
+
+def test_serve_starts_uvicorn_with_the_app(monkeypatch):
+    uvicorn = pytest.importorskip("uvicorn")
+    calls = {}
+    monkeypatch.setattr(uvicorn, "run", lambda app, **kwargs: calls.update(app=app, **kwargs))
+    assert cli.main(["serve", "--no-ui", "--port", "9000"]) == 0
+    assert calls["port"] == 9000
+    assert calls["host"] == "127.0.0.1"

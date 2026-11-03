@@ -4,6 +4,7 @@ Commands:
 
 - ``tiendahogar chat``: interactive chat in the terminal (the default).
 - ``tiendahogar ask "<question>"``: answer one question and exit.
+- ``tiendahogar serve``: HTTP API and web chat UI (needs the ``web`` extra).
 - ``tiendahogar mcp``: run the MCP server over stdio.
 - ``tiendahogar --version``: print the version and the active configuration.
 """
@@ -12,7 +13,6 @@ from __future__ import annotations
 
 import argparse
 import sys
-from importlib.metadata import PackageNotFoundError, version
 
 from dotenv import load_dotenv
 from rich.console import Console
@@ -20,6 +20,7 @@ from rich.markup import escape
 from rich.panel import Panel
 from rich.prompt import Prompt
 
+from tiendahogar import __version__
 from tiendahogar.agent import SupportAgent, build_agent
 from tiendahogar.config import Settings, get_settings
 from tiendahogar.domain import Action, AgentReply
@@ -97,11 +98,20 @@ def serve_mcp() -> int:
     return 0
 
 
-def package_version() -> str:
+def serve(host: str, port: int, with_ui: bool) -> int:
     try:
-        return version("tiendahogar-support-agent")
-    except PackageNotFoundError:
-        return "unknown"
+        import uvicorn
+
+        from tiendahogar.api import create_app
+    except ImportError:
+        console.print("[red]'serve' needs the web extra: uv sync --extra web[/red]")
+        return 1
+    uvicorn.run(create_app(with_ui=with_ui), host=host, port=port, log_config=None)
+    return 0
+
+
+def package_version() -> str:
+    return __version__
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -111,6 +121,10 @@ def build_parser() -> argparse.ArgumentParser:
     commands.add_parser("chat", help="interactive chat (default)")
     ask_parser = commands.add_parser("ask", help="answer one question and exit")
     ask_parser.add_argument("question")
+    serve_parser = commands.add_parser("serve", help="HTTP API and web chat UI")
+    serve_parser.add_argument("--host", default="127.0.0.1")
+    serve_parser.add_argument("--port", type=int, default=7860)
+    serve_parser.add_argument("--no-ui", action="store_true", help="API only, no Gradio UI")
     commands.add_parser("mcp", help="run the MCP server over stdio")
     return parser
 
@@ -128,6 +142,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "ask":
         return ask(args.question)
+    if args.command == "serve":
+        return serve(args.host, args.port, with_ui=not args.no_ui)
     if args.command == "mcp":
         return serve_mcp()
     return chat()

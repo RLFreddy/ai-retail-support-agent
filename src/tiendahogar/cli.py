@@ -106,7 +106,13 @@ def serve(host: str, port: int, with_ui: bool) -> int:
     except ImportError:
         console.print("[red]'serve' needs the web extra: uv sync --extra web[/red]")
         return 1
-    uvicorn.run(create_app(with_ui=with_ui), host=host, port=port, log_config=None)
+    app = create_app(with_ui=with_ui)
+    # Uvicorn's own "running on" line is below the WARNING log level.
+    base = f"http://{'localhost' if host in ('0.0.0.0', '127.0.0.1') else host}:{port}"
+    lines = [f"Web chat: {base}/"] if with_ui else []
+    lines += [f"API docs: {base}/docs", "Press Ctrl+C to stop."]
+    console.print(Panel("\n".join(lines), title="TiendaHogar", border_style="cyan"))
+    uvicorn.run(app, host=host, port=port, log_config=None)
     return 0
 
 

@@ -67,3 +67,12 @@ def test_serve_starts_uvicorn_with_the_app(monkeypatch):
     assert cli.main(["serve", "--no-ui", "--port", "9000"]) == 0
     assert calls["port"] == 9000
     assert calls["host"] == "127.0.0.1"
+
+
+def test_serve_prints_the_urls(monkeypatch, capsys):
+    uvicorn = pytest.importorskip("uvicorn")
+    monkeypatch.setattr(uvicorn, "run", lambda app, **kwargs: None)
+    assert cli.main(["serve", "--no-ui"]) == 0
+    out = capsys.readouterr().out
+    assert "http://localhost:7860/docs" in out
+    assert "Web chat" not in out

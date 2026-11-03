@@ -23,9 +23,9 @@ replies.
 
 <p align="center">
   <img src="assets/demo-web.gif"
-       alt="Web chat: two questions in the English tab, then the Spanish tab answers an order lookup and blocks a prompt injection"
+       alt="Web chat: two questions in the English tab, then in the Spanish tab an order lookup and a follow-up that remembers the order"
        width="760">
-  <br><em>Web UI: <code>tiendahogar serve</code>, English and Español tabs</em>
+  <br><em>Web UI: <code>tiendahogar serve</code>, English and Español tabs, with a follow-up</em>
 </p>
 
 **Stack:** Python 3.12 · [Pydantic AI](https://ai.pydantic.dev/) · BM25

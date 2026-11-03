@@ -1,13 +1,17 @@
-"""TiendaHogar knowledge base.
+"""TiendaHogar knowledge base, in English and Spanish.
 
-The 5 policy documents of the technical test, translated to English. Each
-document is a single chunk: they are about one paragraph long, so finer
-chunking adds nothing for this corpus.
+The 5 policy documents of the technical test: the original Spanish texts and
+their English translation, in the same order and with the same ids, so a
+document index means the same policy in both languages. Each document is a
+single chunk: they are about one paragraph long, so finer chunking adds nothing
+for this corpus.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+
+from tiendahogar.domain import Language
 
 SUPPORT_EMAIL = "support@tiendahogar.example"
 
@@ -73,8 +77,80 @@ DOCUMENTS: list[Document] = [
 ]
 
 
-def default_system_prompt() -> str:
+DOCUMENTS_ES: list[Document] = [
+    Document(
+        id="warranty",
+        title="Política de garantía",
+        content=(
+            "Todos los electrodomésticos grandes (refrigeradoras, lavadoras, estufas) "
+            "tienen garantía de 12 meses desde la fecha de compra. Electrodomésticos "
+            "pequeños (licuadoras, planchas, tostadoras) tienen garantía de 6 meses. "
+            "La garantía cubre defectos de fábrica, no daños por mal uso."
+        ),
+    ),
+    Document(
+        id="returns",
+        title="Política de devoluciones",
+        content=(
+            "Los productos pueden devolverse dentro de 30 días de la compra si están "
+            "sin usar y en su empaque original. Devoluciones después de 30 días solo "
+            "se aceptan si el producto tiene un defecto cubierto por garantía. No se "
+            "aceptan devoluciones de productos personalizados o en oferta final "
+            '("liquidación").'
+        ),
+    ),
+    Document(
+        id="shipping",
+        title="Tiempos de envío",
+        content=(
+            "Envíos a la capital: 2-3 días hábiles. Envíos a otras ciudades: 5-7 días "
+            "hábiles. Envíos internacionales no están disponibles actualmente."
+        ),
+    ),
+    Document(
+        id="refunds",
+        title="Reembolsos",
+        content=(
+            "Los reembolsos se procesan en 5-10 días hábiles después de recibir el "
+            "producto devuelto. Se reembolsa al mismo método de pago original. "
+            "Reembolsos mayores a $500 requieren aprobación de un supervisor humano — "
+            "el agente no debe aprobarlos automáticamente."
+        ),
+    ),
+    Document(
+        id="contact",
+        title="Canales de contacto",
+        content=(
+            "Para quejas sobre el trato de un empleado, disputas de facturación, o "
+            "cualquier tema legal, el cliente debe ser referido a un agente humano en "
+            f"{SUPPORT_EMAIL} — el asistente de IA no debe intentar resolver estos casos."
+        ),
+    ),
+]
+
+KNOWLEDGE: dict[Language, list[Document]] = {Language.EN: DOCUMENTS, Language.ES: DOCUMENTS_ES}
+
+#: How answers cite a document, per language.
+SOURCE_LABEL = {Language.EN: "Source", Language.ES: "Fuente"}
+
+
+def default_system_prompt(language: Language = Language.EN) -> str:
     """System prompt that enforces strict grounding (never invent)."""
+    if language is Language.ES:
+        return (
+            "Eres el asistente de soporte de TiendaHogar, una tienda de electrodomésticos.\n"
+            "Reglas:\n"
+            "1. Usa SOLO la información de los documentos provistos o de la herramienta "
+            "get_order_status. NUNCA inventes políticas, plazos ni estados de pedido.\n"
+            "2. Responde en español, con frases cortas y amables.\n"
+            "3. Al final, cita el documento de cada dato con el formato "
+            "(Fuente: <título del documento>), p. ej. (Fuente: Política de garantía).\n"
+            "4. Si los documentos no responden la pregunta, di que no tienes esa "
+            f"información y sugiere escribir a {SUPPORT_EMAIL}.\n"
+            "5. NO puedes aprobar reembolsos mayores a $500: dilo y deriva al cliente.\n"
+            "6. Quejas sobre el trato de un empleado, disputas de facturación y temas "
+            f"legales: NO intentes resolverlos, deriva al cliente a {SUPPORT_EMAIL}.\n"
+        )
     return (
         "You are the support assistant of TiendaHogar, a home appliance store.\n"
         "Rules:\n"

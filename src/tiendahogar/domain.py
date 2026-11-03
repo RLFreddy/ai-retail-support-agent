@@ -6,6 +6,13 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 
 
+class Language(StrEnum):
+    """Language of the conversation: documents, prompt and replies."""
+
+    EN = "en"
+    ES = "es"
+
+
 class Action(StrEnum):
     """What the agent does with a customer message."""
 

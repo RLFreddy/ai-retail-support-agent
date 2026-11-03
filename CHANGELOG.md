@@ -1,3 +1,10 @@
+## v1.1.0 (2026-11-03)
+
+### Feat
+
+- **api**: pass the conversation history from the web chat, the API and the CLI chat
+- **agent**: remember the last turns of the conversation
+
 ## v1.0.0 (2026-11-03)
 
 ### Feat

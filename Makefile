@@ -4,7 +4,7 @@ PROMPTFOO := PROMPTFOO_PYTHON=$(CURDIR)/.venv/bin/python PROMPTFOO_DISABLE_TELEM
 	npx -y promptfoo@0.124.1
 
 .DEFAULT_GOAL := help
-.PHONY: help install test lint format typecheck eval bench mcp-smoke check \
+.PHONY: help install test lint format typecheck eval bench mcp-smoke check serve \
 	build run chat ask version shell clean
 
 help: ## List the targets
@@ -43,17 +43,21 @@ mcp-smoke: ## Start the MCP server and call its tool over stdio
 
 check: lint typecheck test eval ## Everything CI runs
 
+serve: ## API and web chat UI on http://localhost:7860 (host)
+	uv run tiendahogar serve
+
 # --- Docker -------------------------------------------------------------------
 
 build: ## Build the runtime image
 	docker build -t $(IMAGE) .
 
-run: ## Answer the default demo question
-	docker run --rm $(ENV_FILE) $(IMAGE)
+run: ## API and web chat UI on http://localhost:7860
+	docker run --rm -p 7860:7860 $(ENV_FILE) $(IMAGE)
 
 chat: ## Interactive chat (needs a TTY)
 	docker run --rm -it $(ENV_FILE) $(IMAGE) chat
 
+Q ?= How long is the warranty on a refrigerator?
 ask: ## Answer one question: make ask Q="Where is my order ORD-1002?"
 	docker run --rm $(ENV_FILE) $(IMAGE) ask "$(Q)"
 

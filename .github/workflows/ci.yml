@@ -81,5 +81,13 @@ jobs:
       - run: docker build -t tiendahogar .
       - name: Smoke test the image (mock model, non-root)
         run: |
-          docker run --rm tiendahogar | grep -q "Source: Warranty policy"
+          docker run --rm tiendahogar ask "How long is the warranty on a refrigerator?" \
+            | grep -q "Source: Warranty policy"
           test "$(docker run --rm --entrypoint id tiendahogar -u)" = 10001
+      - name: Smoke test the HTTP API
+        run: |
+          docker run -d --name api -p 7860:7860 tiendahogar
+          curl -sf --retry 20 --retry-delay 1 --retry-all-errors localhost:7860/health
+          curl -sf -X POST localhost:7860/chat -H "content-type: application/json" \
+            -d '{"message": "Where is my order ORD-1002?"}' | grep -q ORD-1002
+          docker rm -f api

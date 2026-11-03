@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
+from typing import Literal
 
 
 class Language(StrEnum):
@@ -32,6 +33,14 @@ class Verdict:
     @property
     def passed(self) -> bool:
         return self.action is Action.ANSWER
+
+
+@dataclass(frozen=True)
+class Turn:
+    """One earlier message of the conversation, as the client remembers it."""
+
+    role: Literal["user", "assistant"]
+    content: str
 
 
 @dataclass(frozen=True)

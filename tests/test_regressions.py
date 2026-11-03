@@ -19,6 +19,7 @@ from pydantic_ai.models.function import FunctionModel
 from tiendahogar import cli
 from tiendahogar.agent import SupportAgent, build_model
 from tiendahogar.config import Settings
+from tiendahogar.domain import AgentReply
 from tiendahogar.guardrails import check_input, check_output
 from tiendahogar.mock import mock_model
 from tiendahogar.retrieval import LexicalRetriever, build_retriever
@@ -61,7 +62,7 @@ def test_ungrounded_answer_is_not_delivered():
 @bug
 def test_plain_days_claim_is_verified():
     verdict = check_output("Your refund arrives in 37 days.")
-    assert verdict.action != "proceed"
+    assert verdict.action != "answer"
 
 
 @bug
@@ -69,7 +70,7 @@ def test_support_email_does_not_skip_grounding():
     verdict = check_output(
         "You have 45 business days to return it; questions to support@tiendahogar.example"
     )
-    assert verdict.action != "proceed"
+    assert verdict.action != "answer"
 
 
 @bug
@@ -136,7 +137,7 @@ def test_paraphrased_prompt_injection_is_blocked():
 
 @bug
 def test_asking_for_an_invoice_is_not_a_billing_dispute():
-    assert check_input("Can you send me the invoice for my purchase?").action == "proceed"
+    assert check_input("Can you send me the invoice for my purchase?").action == "answer"
 
 
 # --------------------------------------------------------------------------- #
@@ -172,9 +173,7 @@ def test_answer_text_is_not_parsed_as_rich_markup(monkeypatch, capsys):
         is_mock = True
 
         def run(self, query):
-            from tiendahogar.agent import AgentResponse
-
-            return AgentResponse(answer="Use the code [/red] at checkout", action="answer")
+            return AgentReply(answer="Use the code [/red] at checkout")
 
     monkeypatch.setattr(cli, "build_agent", lambda settings: FakeAgent())
     cli.ask("hello")

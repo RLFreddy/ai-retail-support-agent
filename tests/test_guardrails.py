@@ -14,25 +14,23 @@ class TestRefundInput:
     def test_refund_over_500_escalates(self):
         verdict = check_input("I want a refund of $1200 for my refrigerator")
         assert verdict.action == "escalate"
-        assert verdict.amount == 1200.0
 
-    def test_refund_up_to_500_proceeds(self):
-        assert check_input("When will my refund of $300 arrive?").action == "proceed"
+    def test_refund_up_to_500_is_answered(self):
+        assert check_input("When will my refund of $300 arrive?").action == "answer"
 
     def test_amount_with_thousands_separator(self):
         verdict = check_input("I need a refund of $1,500.50")
         assert verdict.action == "escalate"
-        assert verdict.amount == 1500.50
 
     def test_exactly_500_does_not_escalate(self):
         # The policy says "over $500".
-        assert check_input("I need a refund of $500").action == "proceed"
+        assert check_input("I need a refund of $500").action == "answer"
 
     def test_501_escalates(self):
         assert check_input("I need a refund of $501").action == "escalate"
 
     def test_asking_about_the_refund_policy_does_not_escalate(self):
-        assert check_input("How long does a refund take?").action == "proceed"
+        assert check_input("How long does a refund take?").action == "answer"
 
 
 class TestHumanTopicsInput:
@@ -57,8 +55,8 @@ class TestSecurityInput:
         verdict = check_input("My card is 4111 1111 1111 1111, can you charge me less?")
         assert verdict.action == "block"
 
-    def test_normal_message_proceeds(self):
-        assert check_input("How long is the warranty on a refrigerator?").action == "proceed"
+    def test_normal_message_is_answered(self):
+        assert check_input("How long is the warranty on a refrigerator?").action == "answer"
 
 
 class TestOutput:
@@ -68,7 +66,7 @@ class TestOutput:
 
     def test_invented_deadline_is_flagged(self):
         verdict = check_output("Your return will be processed in 45 business days.")
-        assert verdict.action != "proceed"
+        assert verdict.action != "answer"
 
     def test_tool_data_counts_as_an_authorized_source(self):
         # "6 business days" is not in the corpus but comes from the tool (ORD-1003).
@@ -76,17 +74,17 @@ class TestOutput:
             "Your order ORD-1003 is processing and will arrive in 6 business days.",
             known_extra={"6 business days"},
         )
-        assert verdict.action == "proceed"
+        assert verdict.action == "answer"
 
     def test_tool_deadline_without_known_extra_is_flagged(self):
         verdict = check_output(
             "Your order ORD-1003 is processing and will arrive in 6 business days."
         )
-        assert verdict.action != "proceed"
+        assert verdict.action != "answer"
 
-    def test_grounded_answer_proceeds(self):
+    def test_grounded_answer_passes(self):
         verdict = check_output("Refrigerators have a warranty of 12 months.")
-        assert verdict.action == "proceed"
+        assert verdict.action == "answer"
 
     def test_empty_answer_is_blocked(self):
         assert check_output("   ").action == "block"

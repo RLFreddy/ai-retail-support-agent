@@ -3,8 +3,9 @@
 import pytest
 
 from tiendahogar import cli
-from tiendahogar.agent import AgentResponse, build_agent
+from tiendahogar.agent import build_agent
 from tiendahogar.config import Settings
+from tiendahogar.domain import Action, AgentReply
 
 
 def test_ask_answers_in_mock_mode(capsys):
@@ -55,5 +56,5 @@ def test_describe_settings_with_key_shows_the_model(monkeypatch):
 
 
 def test_guardrail_responses_are_shown_in_a_panel(capsys):
-    cli.print_response(AgentResponse(answer="Please contact support.", action="refer"))
+    cli.print_response(AgentReply(answer="Please contact support.", action=Action.REFER))
     assert "guardrail: refer" in capsys.readouterr().out

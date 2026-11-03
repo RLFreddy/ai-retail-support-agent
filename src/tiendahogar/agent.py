@@ -6,14 +6,13 @@
 4. Output guardrail (``check_output``) with grounding against the corpus and
    the tool results.
 
-``run(message) -> AgentResponse`` returns the answer, the action
+``run(message) -> AgentReply`` returns the answer, the action
 (answer | refer | escalate | block) and the indices of the retrieved documents.
 """
 
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
 
 from pydantic_ai import Agent
 from pydantic_ai.exceptions import AgentRunError, UserError
@@ -21,7 +20,8 @@ from pydantic_ai.messages import ModelRequest, ToolReturnPart
 from pydantic_ai.models import Model, infer_model
 from pydantic_ai.usage import UsageLimits
 
-from tiendahogar.guardrails import GuardrailVerdict, check_input, check_output, extract_known_claims
+from tiendahogar.domain import Action, AgentReply
+from tiendahogar.guardrails import check_input, check_output, extract_known_claims
 from tiendahogar.knowledge import DOCUMENTS, SUPPORT_EMAIL, default_system_prompt
 from tiendahogar.mock import mock_model
 from tiendahogar.retrieval import Retriever
@@ -30,25 +30,17 @@ from tiendahogar.tools import get_order_status
 log = logging.getLogger(__name__)
 
 DECLINES = {
-    "refer": f"A human agent has to handle this topic. Please write to {SUPPORT_EMAIL}.",
-    "escalate": (
+    Action.REFER: f"A human agent has to handle this topic. Please write to {SUPPORT_EMAIL}.",
+    Action.ESCALATE: (
         "This amount needs approval from a human supervisor; the AI assistant cannot "
         f"resolve it. Please write to {SUPPORT_EMAIL}."
     ),
-    "block": "I cannot process this request because it is outside the scope of TiendaHogar "
+    Action.BLOCK: "I cannot process this request because it is outside the scope of TiendaHogar "
     "support.",
 }
 UNAVAILABLE = (
     f"I cannot answer right now. Please try again later or contact {SUPPORT_EMAIL}."
 )
-
-
-@dataclass(frozen=True)
-class AgentResponse:
-    answer: str
-    action: str = "answer"  # answer | refer | escalate | block
-    sources: list[int] = field(default_factory=list)
-    guardrail: GuardrailVerdict | None = None
 
 
 def build_model(name: str) -> Model:
@@ -99,10 +91,11 @@ class SupportAgent:
     def is_mock(self) -> bool:
         return self.agent.model.model_name == "mock"
 
-    def run(self, message: str) -> AgentResponse:
+    def run(self, message: str) -> AgentReply:
         verdict = check_input(message)
-        if verdict.action != "proceed":
-            return AgentResponse(DECLINES[verdict.action], verdict.action, guardrail=verdict)
+        if not verdict.passed:
+            log.info("input %s: %s", verdict.action, verdict.reason)
+            return AgentReply(DECLINES[verdict.action], verdict.action)
 
         sources = self._retrieve(message)
         try:
@@ -111,12 +104,14 @@ class SupportAgent:
             )
         except AgentRunError:
             log.exception("model run failed")
-            return AgentResponse(UNAVAILABLE, "refer", sources)
+            return AgentReply(UNAVAILABLE, Action.REFER, sources)
 
         answer = result.output.strip()
-        out_verdict = check_output(answer, known_extra=self._tool_claims(result.all_messages()))
-        action = {"proceed": "answer", "escalate": "escalate"}.get(out_verdict.action, "refer")
-        return AgentResponse(answer, action, sources, out_verdict)
+        verdict = check_output(answer, known_extra=self._tool_claims(result.all_messages()))
+        if not verdict.passed:
+            log.info("output %s: %s", verdict.action, verdict.reason)
+        action = Action.REFER if verdict.action is Action.BLOCK else verdict.action
+        return AgentReply(answer, action, sources)
 
     def _retrieve(self, message: str) -> list[int]:
         try:

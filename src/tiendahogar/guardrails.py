@@ -18,8 +18,8 @@ Policies from the technical test:
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
 
+from tiendahogar.domain import Action, Verdict
 from tiendahogar.knowledge import DOCUMENTS, SUPPORT_EMAIL
 
 #: Refunds above this amount need human approval.
@@ -42,16 +42,6 @@ _LEGAL_RE = re.compile(r"\b(legal|lawyer|attorney|lawsuit|sue|court)\b", re.IGNO
 _CLAIM_RE = re.compile(r"(\d+\s*(?:business days?|months?|weeks?|years?))", re.IGNORECASE)
 
 
-@dataclass(frozen=True)
-class GuardrailVerdict:
-    """Guardrail result."""
-
-    action: str  # "proceed" | "escalate" | "refer" | "block"
-    reason: str = ""
-    #: Refund amount found in the message (for "escalate").
-    amount: float | None = None
-
-
 def _parse_amount(text: str) -> tuple[bool, float]:
     """Return (found, amount). Uses the LAST amount when there are several."""
     found = False
@@ -68,11 +58,11 @@ def _parse_amount(text: str) -> tuple[bool, float]:
 # --------------------------------------------------------------------------- #
 # Input rules
 # --------------------------------------------------------------------------- #
-def _rule_refund_escalation(message: str) -> tuple[str | None, float | None]:
+def _rule_refund_escalation(message: str) -> str | None:
     found, amount = _parse_amount(message)
     if found and amount > REFUND_THRESHOLD:
-        return f"refund over ${REFUND_THRESHOLD:,.0f} (${amount:,.0f})", amount
-    return None, None
+        return f"refund over ${REFUND_THRESHOLD:,.0f} (${amount:,.0f})"
+    return None
 
 
 def _rule_human_topics(message: str) -> str | None:
@@ -100,25 +90,25 @@ def _rule_off_topic(message: str) -> str | None:
     return None
 
 
-def check_input(message: str) -> GuardrailVerdict:
+def check_input(message: str) -> Verdict:
     """Evaluate the incoming message and decide the flow."""
     if not message or not message.strip():
-        return GuardrailVerdict(action="proceed")
+        return Verdict()
 
     for rule in (_rule_injection_or_pii, _rule_off_topic):
         reason = rule(message)
         if reason:
-            return GuardrailVerdict(action="block", reason=reason)
+            return Verdict(Action.BLOCK, reason)
 
     reason = _rule_human_topics(message)
     if reason:
-        return GuardrailVerdict(action="refer", reason=reason)
+        return Verdict(Action.REFER, reason)
 
-    reason, amount = _rule_refund_escalation(message)
+    reason = _rule_refund_escalation(message)
     if reason:
-        return GuardrailVerdict(action="escalate", reason=reason, amount=amount)
+        return Verdict(Action.ESCALATE, reason)
 
-    return GuardrailVerdict(action="proceed")
+    return Verdict()
 
 
 # --------------------------------------------------------------------------- #
@@ -153,19 +143,15 @@ def _output_claims_unknown_fact(answer: str, known_extra: set[str] | None = None
     return not claims <= known
 
 
-def check_output(answer: str, known_extra: set[str] | None = None) -> GuardrailVerdict:
+def check_output(answer: str, known_extra: set[str] | None = None) -> Verdict:
     """Validate the final answer before it reaches the customer."""
     if not answer or not answer.strip():
-        return GuardrailVerdict(action="block", reason="the generated answer is empty")
+        return Verdict(Action.BLOCK, "the generated answer is empty")
 
     if _output_approves_large_refund(answer):
-        return GuardrailVerdict(
-            action="escalate", reason="the answer approves a refund over $500"
-        )
+        return Verdict(Action.ESCALATE, "the answer approves a refund over $500")
 
     if _output_claims_unknown_fact(answer, known_extra=known_extra):
-        return GuardrailVerdict(
-            action="refer", reason="the answer states deadlines without verified grounding"
-        )
+        return Verdict(Action.REFER, "the answer states deadlines without verified grounding")
 
-    return GuardrailVerdict(action="proceed")
+    return Verdict()

@@ -21,13 +21,16 @@ from rich.markup import escape
 from rich.panel import Panel
 from rich.prompt import Prompt
 
-from tiendahogar.agent import AgentResponse, SupportAgent, build_agent
+from tiendahogar.agent import SupportAgent, build_agent
 from tiendahogar.config import Settings, get_settings
+from tiendahogar.domain import Action, AgentReply
 
 console = Console()
 
 EXIT_WORDS = {"exit", "quit", "q"}
-ACTION_STYLES = {"answer": "green", "refer": "yellow", "escalate": "red", "block": "red"}
+ACTION_STYLES = {
+    Action.ANSWER: "green", Action.REFER: "yellow", Action.ESCALATE: "red", Action.BLOCK: "red",
+}
 
 
 def describe_settings(settings: Settings, agent: SupportAgent) -> str:
@@ -40,10 +43,10 @@ def describe_settings(settings: Settings, agent: SupportAgent) -> str:
     return f"LLM: {llm} · retrieval: {retrieval} · rerank: {rerank}"
 
 
-def print_response(resp: AgentResponse) -> None:
+def print_response(resp: AgentReply) -> None:
     """Print an agent response. Agent text is escaped: it is never rich markup."""
-    style = ACTION_STYLES.get(resp.action, "white")
-    if resp.action == "answer":
+    style = ACTION_STYLES[resp.action]
+    if resp.action is Action.ANSWER:
         console.print(f"[{style}]TiendaHogar[/{style}] {escape(resp.answer)}")
         if resp.sources:
             console.print(f"[dim]Sources: {resp.sources}[/dim]")

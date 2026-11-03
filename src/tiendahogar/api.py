@@ -2,8 +2,10 @@
 
 Needs the ``web`` extra. Endpoints:
 
-- ``POST /chat``: ``{"message": "...", "language": "en" | "es"}`` →
-  ``{"answer", "action", "sources"}``. The language defaults to English.
+- ``POST /chat``: ``{"message": "...", "language": "en" | "es", "history": [...]}``
+  → ``{"answer", "action", "sources"}``. The language defaults to English; the
+  optional history holds the earlier ``{"role", "content"}`` turns. The server
+  keeps no session: the client sends the conversation.
 - ``GET /health``: liveness plus the active model.
 - ``/``: the Gradio chat UI, when mounted.
 """
@@ -11,6 +13,7 @@ Needs the ``web`` extra. Endpoints:
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import Literal
 
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
@@ -18,12 +21,18 @@ from pydantic import BaseModel, Field
 from tiendahogar import __version__
 from tiendahogar.agent import SupportAgent, build_agents
 from tiendahogar.config import get_settings
-from tiendahogar.domain import Action, Language
+from tiendahogar.domain import Action, Language, Turn
+
+
+class ChatTurn(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(max_length=4000)
 
 
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=2000)
     language: Language = Language.EN
+    history: list[ChatTurn] = Field(default_factory=list, max_length=50)
 
 
 class ChatResponse(BaseModel):
@@ -55,7 +64,8 @@ def create_app(
     # agent call never stalls the event loop.
     @app.post("/chat")
     def chat(request: ChatRequest) -> ChatResponse:
-        reply = agents[request.language].run(request.message)
+        history = [Turn(turn.role, turn.content) for turn in request.history]
+        reply = agents[request.language].run(request.message, history)
         return ChatResponse(answer=reply.answer, action=reply.action, sources=reply.sources)
 
     if with_ui:

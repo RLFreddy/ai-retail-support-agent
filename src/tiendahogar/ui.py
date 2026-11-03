@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable, Mapping
+from typing import Any
 
 # No usage analytics or update checks from the UI library.
 os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")
@@ -11,7 +12,7 @@ os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")
 import gradio as gr
 
 from tiendahogar.agent import SupportAgent
-from tiendahogar.domain import Action, AgentReply, Language
+from tiendahogar.domain import Action, AgentReply, Language, Turn
 
 THEME = gr.themes.Soft(primary_hue="indigo")
 
@@ -41,9 +42,30 @@ def format_reply(reply: AgentReply) -> str:
     return f"**[{reply.action}]** {reply.answer}"
 
 
-def _responder(agent: SupportAgent) -> Callable[[str, list[dict[str, str]]], str]:
-    def respond(message: str, history: list[dict[str, str]]) -> str:
-        return format_reply(agent.run(message))
+def _text(content: object) -> str:
+    """Text of a chat message: a string, or the text parts of a list."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = [_text(item) for item in content]
+        return " ".join(part for part in parts if part)
+    if isinstance(content, dict) and isinstance(content.get("text"), str):
+        return str(content["text"])
+    return ""
+
+
+def to_turns(history: list[dict[str, Any]]) -> list[Turn]:
+    """The chat history Gradio keeps, as conversation turns for the agent."""
+    return [
+        Turn(message["role"], _text(message.get("content")))
+        for message in history
+        if message.get("role") in ("user", "assistant")
+    ]
+
+
+def _responder(agent: SupportAgent) -> Callable[[str, list[dict[str, Any]]], str]:
+    def respond(message: str, history: list[dict[str, Any]]) -> str:
+        return format_reply(agent.run(message, to_turns(history)))
 
     return respond
 

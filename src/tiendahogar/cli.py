@@ -24,7 +24,7 @@ from rich.prompt import Prompt
 from tiendahogar import __version__
 from tiendahogar.agent import SupportAgent, build_agent
 from tiendahogar.config import Settings, get_settings
-from tiendahogar.domain import Action, AgentReply, Language
+from tiendahogar.domain import Action, AgentReply, Language, Turn
 from tiendahogar.telemetry import configure_logging, configure_tracing
 
 console = Console()
@@ -72,6 +72,7 @@ def chat(language: Language = Language.EN) -> int:
             border_style="cyan",
         )
     )
+    history: list[Turn] = []
     while True:
         try:
             message = Prompt.ask("[bold]You[/bold]")
@@ -81,7 +82,9 @@ def chat(language: Language = Language.EN) -> int:
         if message.strip().lower() in EXIT_WORDS:
             console.print("[dim]Bye![/dim]")
             return 0
-        print_response(agent.run(message))
+        reply = agent.run(message, history)
+        print_response(reply)
+        history += [Turn("user", message), Turn("assistant", reply.answer)]
 
 
 def ask(question: str, language: Language = Language.EN) -> int:

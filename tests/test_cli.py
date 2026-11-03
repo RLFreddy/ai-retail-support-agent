@@ -38,6 +38,13 @@ def test_chat_exits_on_exit_word(monkeypatch, capsys):
     assert "Bye!" in capsys.readouterr().out
 
 
+def test_chat_remembers_earlier_messages(monkeypatch, capsys):
+    answers = iter(["How long is the warranty on a refrigerator?", "And for a blender?", "exit"])
+    monkeypatch.setattr(cli.Prompt, "ask", lambda *a, **k: next(answers))
+    assert cli.main(["chat"]) == 0
+    assert capsys.readouterr().out.count("(Source: Warranty policy)") == 2
+
+
 def test_ask_requires_a_question():
     with pytest.raises(SystemExit):
         cli.main(["ask"])

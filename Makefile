@@ -1,6 +1,6 @@
 ENV_FILE := $(if $(wildcard .env),--env-file=.env,)
 
-.PHONY: build run repl tui demo query eval bench version shell test lint mcp-smoke clean
+.PHONY: build run repl query eval bench version shell test lint mcp-smoke clean
 
 build: ## Construir la imagen: docker build -t tiendahogar .
 	docker build -t tiendahogar .
@@ -8,14 +8,11 @@ build: ## Construir la imagen: docker build -t tiendahogar .
 run: ## Demo por defecto (modo mock, sin red)
 	docker run --rm $(ENV_FILE) tiendahogar
 
-repl: ## REPL interactiva de rich (requiere TTY)
-	docker run --rm -it $(ENV_FILE) -e UI=rich tiendahogar python -m tiendahogar.cli --plain
-
-tui: ## TUI interactiva de Textual (requiere TTY)
-	docker run --rm -it $(ENV_FILE) -e UI=textual tiendahogar python -m tiendahogar.cli
+repl: ## Interactive chat (needs a TTY)
+	docker run --rm -it $(ENV_FILE) tiendahogar tiendahogar chat
 
 query: ## Respuesta a una consulta: make query Q="¿Dónde está mi pedido ORD-1002?"
-	docker run --rm $(ENV_FILE) tiendahogar python -m tiendahogar.cli --query "$$Q"
+	docker run --rm $(ENV_FILE) tiendahogar tiendahogar ask "$$Q"
 
 PROMPTFOO := PROMPTFOO_PYTHON=$(CURDIR)/.venv/bin/python PROMPTFOO_DISABLE_TELEMETRY=1 \
 	npx -y promptfoo@0.124.1
@@ -29,10 +26,10 @@ bench: ## Variant matrix with the real model (needs the API key and the TEI cont
 	$(PROMPTFOO) eval -c evals/promptfooconfig.bench.yaml --no-cache --env-file .env
 
 version: ## Versión y variante del agente
-	docker run --rm tiendahogar python -m tiendahogar.cli --version
+	docker run --rm tiendahogar tiendahogar --version
 
 shell: ## Shell interactivo dentro del contenedor
-	docker run --rm -it $(ENV_FILE) -e UI=rich tiendahogar sh
+	docker run --rm -it $(ENV_FILE) tiendahogar sh
 
 test: ## Tests dentro del contenedor (pytest)
 	docker run --rm tiendahogar pytest

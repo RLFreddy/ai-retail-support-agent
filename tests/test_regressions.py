@@ -13,7 +13,7 @@ import logging
 
 import pytest
 
-from tiendahogar import cli_rich
+from tiendahogar import cli
 from tiendahogar.agent import SupportAgent
 from tiendahogar.config import Settings
 from tiendahogar.guardrails import check_input, check_output
@@ -186,7 +186,6 @@ def test_missing_system_prompt_file_is_an_error():
         _ = Settings(system_prompt="prompts/does-not-exist.txt").system_prompt_text
 
 
-@bug
 def test_answer_text_is_not_parsed_as_rich_markup(monkeypatch, capsys):
     class FakeAgent:
         def run(self, query):
@@ -194,6 +193,6 @@ def test_answer_text_is_not_parsed_as_rich_markup(monkeypatch, capsys):
 
             return AgentResponse(answer="Usa el código [/red] al pagar", action="answer")
 
-    monkeypatch.setattr(cli_rich, "build_agent", lambda settings: FakeAgent())
-    cli_rich.run_once("hola")
+    monkeypatch.setattr(cli, "build_agent", lambda settings: FakeAgent())
+    cli.ask("hola")
     assert "[/red]" in capsys.readouterr().out

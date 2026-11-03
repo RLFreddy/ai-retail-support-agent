@@ -76,7 +76,6 @@ class Settings(BaseSettings):
     semantic_threshold: float = 0.56
     max_turns: int = 2
     system_prompt: str = "auto"  # "auto" | ruta a un .txt | texto literal
-    ui: Literal["textual", "rich"] = "textual"
 
     groq_api_key: str = ""
     openrouter_api_key: str = ""

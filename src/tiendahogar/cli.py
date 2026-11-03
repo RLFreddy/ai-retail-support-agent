@@ -1,68 +1,124 @@
-"""CLI del agente TiendaHogar.
+"""Command-line interface of the TiendaHogar support agent.
 
-Tres modos:
-- ``tiendahogar``: TUI interactiva con Textual (default; cae a rich si Textual
-  no está instalado).
-- ``tiendahogar --plain``: REPL simple con rich.
-- ``tiendahogar --query <pregunta>`` (o ``--query=<pregunta>``): responde una
-  sola consulta y termina (modo programático/prueba).
+Commands:
 
-Uso: ``tiendahogar``  o  ``python -m tiendahogar.cli``
+- ``tiendahogar chat``: interactive chat in the terminal (the default).
+- ``tiendahogar ask "<question>"``: answer one question and exit.
+- ``tiendahogar mcp``: run the MCP server over stdio.
+- ``tiendahogar --version``: print the version and the active configuration.
 """
 
 from __future__ import annotations
 
+import argparse
 import sys
 from importlib.metadata import PackageNotFoundError, version
 
-from tiendahogar.config import get_settings
+from rich.console import Console
+from rich.markup import escape
+from rich.panel import Panel
+from rich.prompt import Prompt
 
-from . import cli_rich
+from tiendahogar.agent import AgentResponse, build_agent
+from tiendahogar.config import Settings, get_settings
 
-__all__ = ["_query_from_argv", "_run_interactive", "main"]
+console = Console()
 
-
-def _query_from_argv(argv: list[str]) -> str | None:
-    """Devuelve la consulta de ``--query=...`` o ``--query ...``, si existe."""
-    for i, arg in enumerate(argv):
-        if arg == "--query":
-            if i + 1 < len(argv):
-                return argv[i + 1]
-        elif arg.startswith("--query="):
-            return arg.split("=", 1)[1]
-    return None
+EXIT_WORDS = {"exit", "quit", "q", "salir"}
+ACTION_STYLES = {"answer": "green", "refer": "yellow", "escalate": "red", "block": "red"}
 
 
-def _run_interactive(ui: str) -> int:
-    """Lanza la TUI de Textual si está disponible; si no, el REPL de rich."""
-    if ui == "textual":
+def describe_settings(settings: Settings) -> str:
+    """One line with the active model, retrieval backend and reranking."""
+    llm = settings.llm_model if settings.has_llm_key else "mock (no API key)"
+    retrieval = (
+        "offline (lexical)"
+        if settings.embedding_backend == "offline"
+        else f"semantic ({settings.embedding_backend})"
+    )
+    rerank = "on" if settings.rerank_enabled else "off"
+    return f"LLM: {llm} · retrieval: {retrieval} · rerank: {rerank}"
+
+
+def print_response(resp: AgentResponse) -> None:
+    """Print an agent response. Agent text is escaped: it is never rich markup."""
+    style = ACTION_STYLES.get(resp.action, "white")
+    if resp.action == "answer":
+        console.print(f"[{style}]TiendaHogar[/{style}] {escape(resp.answer)}")
+        if resp.sources:
+            console.print(f"[dim]Sources: {resp.sources}[/dim]")
+    else:
+        console.print(
+            Panel(escape(resp.answer), title=f"guardrail: {resp.action}", border_style=style)
+        )
+
+
+def chat() -> int:
+    settings = get_settings()
+    agent = build_agent(settings)
+    console.print(
+        Panel(
+            "[bold]TiendaHogar support agent[/bold]\n"
+            "Type your question, or 'exit' to quit.\n"
+            f"[dim]{escape(describe_settings(settings))}[/dim]",
+            border_style="cyan",
+        )
+    )
+    while True:
         try:
-            from .cli_textual import run_textual
-        except ImportError:
-            return cli_rich.run_rich()
-        return run_textual()
-    return cli_rich.run_rich()
+            message = Prompt.ask("[bold]You[/bold]")
+        except (EOFError, KeyboardInterrupt):
+            console.print("\n[dim]Bye![/dim]")
+            return 0
+        if message.strip().lower() in EXIT_WORDS:
+            console.print("[dim]Bye![/dim]")
+            return 0
+        print_response(agent.run(message))
+
+
+def ask(question: str) -> int:
+    settings = get_settings()
+    console.print(f"[dim]{escape(describe_settings(settings))}[/dim]")
+    print_response(build_agent(settings).run(question))
+    return 0
+
+
+def serve_mcp() -> int:
+    from tiendahogar.mcp_server import mcp
+
+    mcp.run(transport="stdio")
+    return 0
+
+
+def package_version() -> str:
+    try:
+        return version("tiendahogar-support-agent")
+    except PackageNotFoundError:
+        return "unknown"
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="tiendahogar", description=__doc__.splitlines()[0])
+    parser.add_argument("--version", action="store_true", help="print version and exit")
+    commands = parser.add_subparsers(dest="command")
+    commands.add_parser("chat", help="interactive chat (default)")
+    ask_parser = commands.add_parser("ask", help="answer one question and exit")
+    ask_parser.add_argument("question")
+    commands.add_parser("mcp", help="run the MCP server over stdio")
+    return parser
 
 
 def main(argv: list[str] | None = None) -> int:
-    argv = list(sys.argv[1:] if argv is None else argv)
-
-    if "--version" in argv:
-        try:
-            print(version("tiendahogar-support-agent"))
-        except PackageNotFoundError:
-            print("tiendahogar-support-agent (sin versión instalada)")
-        print(f"Variante: {cli_rich.variant_label(get_settings())}")
+    args = build_parser().parse_args(argv)
+    if args.version:
+        print(f"tiendahogar {package_version()}")
+        print(describe_settings(get_settings()))
         return 0
-
-    query = _query_from_argv(argv)
-    if query is not None:
-        return cli_rich.run_once(query)
-
-    if "--plain" in argv:
-        return cli_rich.run_rich()
-
-    return _run_interactive(get_settings().ui.lower())
+    if args.command == "ask":
+        return ask(args.question)
+    if args.command == "mcp":
+        return serve_mcp()
+    return chat()
 
 
 if __name__ == "__main__":

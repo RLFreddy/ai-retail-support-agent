@@ -118,13 +118,11 @@ def test_retrieval_failure_is_logged(caplog):
 # --------------------------------------------------------------------------- #
 # Input guardrails
 # --------------------------------------------------------------------------- #
-@bug
 def test_refund_uses_the_largest_amount():
     message = "I want a refund of $1200 for the fridge, the delivery cost me $30"
     assert check_input(message).action == "escalate"
 
 
-@bug
 def test_refund_without_dollar_sign_escalates():
     assert check_input("I want a refund of 1200 dollars").action == "escalate"
 

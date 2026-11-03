@@ -21,11 +21,9 @@ import re
 
 from tiendahogar.domain import Action, Verdict
 from tiendahogar.knowledge import DOCUMENTS, SUPPORT_EMAIL
+from tiendahogar.money import REFUND_LIMIT, largest_amount
 
-#: Refunds above this amount need human approval.
-REFUND_THRESHOLD = 500.0
-
-_AMOUNT_RE = re.compile(r"\$\s*([\d.,]+)")
+_REFUND_RE = re.compile(r"\b(refund(ed|s)?|reimburse(ment)?|money back)\b", re.IGNORECASE)
 
 _TREATMENT_RE = re.compile(
     r"\b(rude|attitude|insult(ed|ing)?|disrespectful|treated|unfriendly)\b", re.IGNORECASE
@@ -42,26 +40,13 @@ _LEGAL_RE = re.compile(r"\b(legal|lawyer|attorney|lawsuit|sue|court)\b", re.IGNO
 _CLAIM_RE = re.compile(r"(\d+\s*(?:business days?|months?|weeks?|years?))", re.IGNORECASE)
 
 
-def _parse_amount(text: str) -> tuple[bool, float]:
-    """Return (found, amount). Uses the LAST amount when there are several."""
-    found = False
-    amount = 0.0
-    for match in _AMOUNT_RE.finditer(text):
-        try:
-            amount = float(match.group(1).replace(",", ""))
-            found = True
-        except ValueError:
-            continue
-    return found, amount
-
-
 # --------------------------------------------------------------------------- #
 # Input rules
 # --------------------------------------------------------------------------- #
 def _rule_refund_escalation(message: str) -> str | None:
-    found, amount = _parse_amount(message)
-    if found and amount > REFUND_THRESHOLD:
-        return f"refund over ${REFUND_THRESHOLD:,.0f} (${amount:,.0f})"
+    amount = largest_amount(message)
+    if _REFUND_RE.search(message) and amount is not None and amount > REFUND_LIMIT:
+        return f"refund of ${amount:,} is over the ${REFUND_LIMIT} limit"
     return None
 
 
@@ -117,9 +102,8 @@ def check_input(message: str) -> Verdict:
 def _output_approves_large_refund(answer: str) -> bool:
     if not re.search(r"\bapprov(e|ed|ing)\b", answer, re.IGNORECASE):
         return False
-    found, amount = _parse_amount(answer)
-    mentions_refund = re.search(r"\b(refund|return)\b", answer, re.IGNORECASE) is not None
-    return found and amount > REFUND_THRESHOLD and mentions_refund
+    amount = largest_amount(answer)
+    return bool(_REFUND_RE.search(answer)) and amount is not None and amount > REFUND_LIMIT
 
 
 def extract_known_claims(text: str) -> set[str]:

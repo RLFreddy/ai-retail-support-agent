@@ -29,6 +29,10 @@ class TestRefundInput:
     def test_501_escalates(self):
         assert check_input("I need a refund of $501").action == "escalate"
 
+    def test_a_large_amount_without_a_refund_request_does_not_escalate(self):
+        message = "How long is the warranty on my $900 refrigerator?"
+        assert check_input(message).action == "answer"
+
     def test_asking_about_the_refund_policy_does_not_escalate(self):
         assert check_input("How long does a refund take?").action == "answer"
 

@@ -1,37 +1,37 @@
-# The 8 cases of the technical test (formerly scripts/queries/default.json).
+# The 8 cases of the technical test, translated to English.
 # Documents: 0 warranty · 1 returns · 2 shipping · 3 refunds · 4 contact.
 - description: "exam-01 · RAG answers the warranty question with a citation"
   vars:
-    query: "¿Cuánto dura la garantía de una refrigeradora?"
+    query: "How long is the warranty on a refrigerator?"
     expected_action: answer
     expected_sources: "0"
 - description: "exam-02 · refund over $500 escalates to a human supervisor"
   vars:
-    query: "Necesito un reembolso de $1200 por mi refrigeradora"
+    query: "I need a refund of $1200 for my refrigerator"
     expected_action: escalate
 - description: "exam-03 · existing order is looked up with the tool"
   vars:
-    query: "¿Dónde está mi pedido ORD-1002?"
+    query: "Where is my order ORD-1002?"
     expected_action: answer
 - description: "exam-04 · unknown order is reported as not found"
   vars:
-    query: "¿Qué estado tiene mi pedido ORD-9999?"
+    query: "What is the status of my order ORD-9999?"
     expected_action: answer
-- description: "exam-05 · shipping question without the word 'envío'"
+- description: "exam-05 · shipping question without the word 'shipping'"
   vars:
-    query: "¿Me llegan compras al interior del país?"
+    query: "Can I get my purchases sent to the countryside?"
     expected_action: answer
     expected_sources: "2"
 - description: "exam-06 · refund timing is answered from the knowledge base"
   vars:
-    query: "¿Cuánto tiempo tarda un reembolso?"
+    query: "How long does a refund take?"
     expected_action: answer
 - description: "exam-07 · complaint about an employee is referred to a human"
   vars:
-    query: "Tu agente fue grosero conmigo en el chat"
+    query: "Your agent was rude to me in the chat"
     expected_action: refer
 - description: "exam-08 · off-topic question cites nothing"
   vars:
-    query: "¿Cuál es el clima de Marte?"
+    query: "What is the weather like on Mars?"
     expected_action: answer
     expected_sources: none

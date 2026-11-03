@@ -1,17 +1,15 @@
-"""Agente de soporte TiendaHogar.
+"""TiendaHogar support agent.
 
-Loop propio (sin OpenAI Agents SDK) de ~60 líneas:
-1. Guardrail de entrada (check_input).
-2. Si procede: RAG (retrieval sobre DOCUMENTS).
-3. Loop de tool-calling con LiteLLM (max_turns).
-4. Ejecutar la tool consultar_estado_pedido y realimentar el modelo.
-5. Guardrail de salida (check_output) + grounding contra el corpus.
+A small hand-written loop:
 
-Contrato visible:
-- ``run(user_message) -> AgentResponse``
-- ``AgentResponse.answer``: la respuesta final para el usuario.
-- ``AgentResponse.action``: "answer" | "refer" | "escalate" | "block" | "off_topic".
-- Grounding: el response lleva ``sources`` (índices [fuente:N]) usados.
+1. Input guardrail (``check_input``).
+2. Retrieval over the knowledge base.
+3. Tool-calling loop with the LLM (at most ``max_turns`` calls).
+4. Run ``get_order_status`` and feed the result back to the model.
+5. Output guardrail (``check_output``) with grounding against the corpus.
+
+``run(user_message) -> AgentResponse`` returns the answer, the action
+(answer | refer | escalate | block) and the indices of the cited documents.
 """
 
 from __future__ import annotations
@@ -21,42 +19,41 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from tiendahogar.guardrails import (
-    SUPPORT_EMAIL,
     GuardrailVerdict,
     check_input,
     check_output,
     extract_known_claims,
 )
-from tiendahogar.knowledge import DOCUMENTS, default_system_prompt
+from tiendahogar.knowledge import DOCUMENTS, SUPPORT_EMAIL, default_system_prompt
 from tiendahogar.llm import LLMClient, ToolCall
 from tiendahogar.retrieval import BaseRetriever
-from tiendahogar.tools import TOOL_SCHEMA, consultar_estado_pedido
+from tiendahogar.tools import TOOL_SCHEMA, get_order_status
 
-TOOL_NAME = "consultar_estado_pedido"
+TOOL_NAME = "get_order_status"
 
 
 @dataclass(frozen=True)
 class AgentResponse:
     answer: str
-    action: str = "answer"  # answer | refer | escalate | block | off_topic
+    action: str = "answer"  # answer | refer | escalate | block
     sources: list[int] = field(default_factory=list)
     guardrail: GuardrailVerdict | None = None
     raw_steps: int = 0
 
 
 def _grounding_prompt(sources: list[int]) -> str:
-    """Construye el bloque de contexto RAG con citas [fuente:N]."""
+    """Build the retrieval context block with [source:N] citations."""
     blocks = [
-        f"[fuente:{i}] {DOCUMENTS[i].title}\n{DOCUMENTS[i].content}" for i in sources
+        f"[source:{i}] {DOCUMENTS[i].title}\n{DOCUMENTS[i].content}" for i in sources
     ]
     return (
-        "CONTEXTO (SOLO responde usando estos documentos; cita cada dato con su "
-        "formato [fuente:N]):\n" + "\n\n".join(blocks)
+        "CONTEXT (answer ONLY from these documents; cite each fact with its "
+        "[source:N] tag):\n" + "\n\n".join(blocks)
     )
 
 
 class SupportAgent:
-    """El agente: guardrails + RAG + tool-calling con un loop propio."""
+    """The agent: guardrails, retrieval and tool calling in one loop."""
 
     def __init__(
         self,
@@ -78,9 +75,9 @@ class SupportAgent:
 
     def _execute_tool(self, call: ToolCall) -> dict[str, Any]:
         if call.name != TOOL_NAME:
-            return {"ok": False, "error": f"tool desconocida: {call.name}"}
+            return {"ok": False, "error": f"unknown tool: {call.name}"}
         try:
-            return consultar_estado_pedido(call.arguments.get("order_id", ""))
+            return get_order_status(call.arguments.get("order_id", ""))
         except (TypeError, ValueError) as exc:
             return {"ok": False, "error": str(exc)}
 
@@ -119,9 +116,9 @@ class SupportAgent:
                 })
                 for tc in result.tool_calls:
                     tool_msg = self._execute_tool(tc)
-                    if isinstance(tool_msg, dict) and tool_msg.get("encontrado") is True:
+                    if isinstance(tool_msg, dict) and tool_msg.get("found") is True:
                         tool_claims |= extract_known_claims(
-                            str(tool_msg.get("entrega_estimada", ""))
+                            str(tool_msg.get("estimated_delivery", ""))
                         )
                     messages.append({
                         "role": "tool",
@@ -144,56 +141,53 @@ class SupportAgent:
 
         return AgentResponse(
             answer=(
-                "No he podido obtener una respuesta del modelo en el número de "
-                f"intentos permitidos. Por favor contacta a {SUPPORT_EMAIL}."
+                "I could not get an answer from the model within the allowed "
+                f"attempts. Please contact {SUPPORT_EMAIL}."
             ),
             action="refer",
             sources=sources,
             raw_steps=steps,
         )
 
-    # ---------------- helpers ----------------
     def _retrieve(self, user_message: str) -> tuple[list[int], str]:
         try:
             results = self.retriever.retrieve(
                 user_message, top_k=self.top_k, threshold=self.relevance_threshold
             )
-        except Exception:  # noqa: BLE001 - fallback defensivo: sin retrieval no hay contexto
+        except Exception:  # noqa: BLE001 - no retrieval means no context
             results = []
         if not results:
             return [], self._no_context_prompt()
         sources = [DOCUMENTS.index(r.document) for r in results]
-        # Evitar duplicados si el retriever devolviera el mismo doc dos veces.
         sources = list(dict.fromkeys(sources))
         return sources, _grounding_prompt(sources)
 
     def _no_context_prompt(self) -> str:
         return (
-            "No hay documentos relevantes para esta consulta. Responde que no "
-            "tienes esa información y sugiere contactar soporte@tiendahogar.example."
+            "No document is relevant to this question. Say you do not have that "
+            f"information and suggest contacting {SUPPORT_EMAIL}."
         )
 
     def _handle_guardrail(self, verdict: GuardrailVerdict, sources: list[int]) -> AgentResponse:
         action_messages = {
             "refer": (
-                "Ese tema debe ser atendido por un agente humano. Por favor "
-                f"escribe a {SUPPORT_EMAIL}."
-            ),
-            "escalate": (
-                "El monto indicado requiere aprobación de un supervisor humano; "
-                f"el asistente de IA no puede resolverlo. Por favor escribe a "
+                "A human agent has to handle this topic. Please write to "
                 f"{SUPPORT_EMAIL}."
             ),
+            "escalate": (
+                "This amount needs approval from a human supervisor; the AI "
+                f"assistant cannot resolve it. Please write to {SUPPORT_EMAIL}."
+            ),
             "block": (
-                "No puedo procesar esa solicitud porque parece sesgada o fuera "
-                "del alcance del soporte de TiendaHogar."
+                "I cannot process this request because it is outside the scope "
+                "of TiendaHogar support."
             ),
         }
         answer = action_messages.get(
             verdict.action,
             (
-                "No tengo información para responder esa pregunta. Por favor "
-                f"contacta a {SUPPORT_EMAIL}."
+                "I do not have information to answer that question. Please "
+                f"contact {SUPPORT_EMAIL}."
             ),
         )
         return AgentResponse(
@@ -210,11 +204,8 @@ class SupportAgent:
         }.get(verdict.action, "refer")
 
 
-# --------------------------------------------------------------------------- #
-# Factory
-# --------------------------------------------------------------------------- #
 def build_agent(settings=None) -> SupportAgent:
-    """Construye el agente completo desde Settings."""
+    """Build the full agent from the settings."""
     from tiendahogar.config import get_settings
     from tiendahogar.llm import build_client
     from tiendahogar.retrieval import build_retriever

@@ -1,12 +1,10 @@
-"""Capas de LLM del agente TiendaHogar.
+"""LLM clients of the TiendaHogar agent.
 
-``LiteLLMClient``: envoltorio delgado sobre ``litellm.completion`` con
-tool-calling (funciones) y una interfaz mínima común.
-``MockLLM``: simulador determinista SIN red. Se usa cuando no hay API key
-(``has_llm_key == False``) para que el agente sea 100% testeable/demostrable.
+- ``LiteLLMClient``: thin wrapper over ``litellm.completion`` with tool calling.
+- ``MockLLM``: deterministic stand-in without network, used when there is no
+  API key so the agent can be tested and demoed offline.
 
-Diseño: ambas clases exponen ``chat(messages, tools) -> LLMResult``, donde
-``LLMResult`` normaliza tool calls (lista de ``ToolCall``) + contenido.
+Both expose ``chat(messages, tools) -> LLMResult``.
 """
 
 from __future__ import annotations
@@ -17,7 +15,7 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from tiendahogar.config import provider_key_env
-from tiendahogar.knowledge import DOCUMENTS
+from tiendahogar.knowledge import DOCUMENTS, SUPPORT_EMAIL
 from tiendahogar.retrieval import _tokenize
 
 
@@ -37,13 +35,13 @@ class LLMResult:
 
 
 class LLMClient(Protocol):
-    """Interfaz común de los clientes LLM."""
+    """Common interface of the LLM clients."""
 
     def chat(self, messages: list[dict], tools: list[dict] | None = None) -> LLMResult: ...
 
 
 class LiteLLMClient:
-    """Cliente sobre litellm.completion con soporte de tools."""
+    """Client over litellm.completion with tool support."""
 
     def __init__(self, model: str, api_key: str = ""):
         self.model = model
@@ -60,9 +58,9 @@ class LiteLLMClient:
 
         try:
             resp = litellm.completion(**kwargs)
-        except Exception as exc:  # noqa: BLE001 - cualquier fallo de red/proveedor
+        except Exception as exc:  # noqa: BLE001 - any network or provider failure
             return LLMResult(
-                content=f"Error del modelo: {exc}", finish_reason="error"
+                content=f"Model error: {exc}", finish_reason="error"
             )
 
         choice = resp.choices[0]
@@ -84,11 +82,11 @@ class LiteLLMClient:
 
 
 class MockLLM:
-    """Simulador determinista del LLM (sin red).
+    """Deterministic LLM stand-in (no network).
 
-    No genera contenido real. Se usa SOLO para probar el flujo del agente sin
-    red: detecta si el último mensaje pide una tool y la "delega" respondiendo
-    con una tool call simulada; en caso contrario devuelve un eco fijo.
+    Used to exercise the agent flow offline: it calls the order tool when the
+    message names an order, answers from the retrieved context by keyword
+    routing, and otherwise says it has no information.
     """
 
     def __init__(self, responses: dict[str, str] | None = None):
@@ -103,101 +101,95 @@ class MockLLM:
             if key.lower() in last_user.lower():
                 return LLMResult(content=answer)
 
-        # Si la tool ya se ejecutó, el modelo "consume" su resultado y responde.
-        tool_msg = next(
-            (m for m in reversed(messages) if m.get("role") == "tool"), None
-        )
+        tool_msg = next((m for m in reversed(messages) if m.get("role") == "tool"), None)
         if tool_msg is not None:
-            try:
-                payload = json.loads(tool_msg["content"])
-            except (json.JSONDecodeError, ValueError, TypeError):
-                payload = {}
-            if payload.get("encontrado") is False:
-                return LLMResult(
-                    content=(
-                        f"No encontré el pedido {payload.get('order_id', '')}. "
-                        "Por favor verifica el número o contacta a "
-                        "soporte@tiendahogar.example."
-                    )
-                )
-            order_id = payload.get("order_id", "")
-            producto = payload.get("producto", "")
-            estado = payload.get("estado", "").lower()
-            estimate = str(payload.get("entrega_estimada", "")).strip()
-            if estimate and estimate != "-":
-                return LLMResult(
-                    content=(
-                        f"Tu pedido {order_id} ({producto}) está {estado}"
-                        f" y se entregará en {estimate}."
-                    )
-                )
-            return LLMResult(
-                content=f"Tu pedido {order_id} ({producto}) está {estado}."
-            )
+            return LLMResult(content=self._answer_from_tool(tool_msg))
 
-        # Solo llamamos la tool si el usuario menciona un pedido explícito.
-        found = re.search(r"(ORD-\d+)", last_user)
-        tool_names = [t.get("function", {}).get("name") for t in (tools or []) if t.get("type") == "function"]
-        if found and "consultar_estado_pedido" in tool_names:
+        found = re.search(r"(ORD-\d+)", last_user, re.IGNORECASE)
+        tool_names = [
+            t.get("function", {}).get("name")
+            for t in (tools or [])
+            if t.get("type") == "function"
+        ]
+        if found and "get_order_status" in tool_names:
             return LLMResult(
-                content="",
                 tool_calls=[
                     ToolCall(
                         id="mock-1",
-                        name="consultar_estado_pedido",
+                        name="get_order_status",
                         arguments={"order_id": found.group(1)},
                     )
                 ],
                 finish_reason="tool_calls",
             )
 
-        # Grounding-aware: respondemos desde el bloque CONTEXTO (si hay).
         grounded = self._answer_from_context(messages, last_user)
         if grounded is not None:
             return LLMResult(content=grounded)
-        return LLMResult(content="Lo siento, no tengo esa información.")
+        return LLMResult(content="Sorry, I do not have that information.")
+
+    @staticmethod
+    def _answer_from_tool(tool_msg: dict) -> str:
+        try:
+            payload = json.loads(tool_msg["content"])
+        except (json.JSONDecodeError, ValueError, TypeError):
+            payload = {}
+        order_id = payload.get("order_id", "")
+        if payload.get("found") is not True:
+            return (
+                f"I could not find order {order_id}. Please check the number or "
+                f"contact {SUPPORT_EMAIL}."
+            )
+        product = payload.get("product", "")
+        status = payload.get("status", "").lower()
+        estimate = str(payload.get("estimated_delivery", "")).strip()
+        if estimate and estimate != "-":
+            return (
+                f"Your order {order_id} ({product}) is {status}"
+                f" and will arrive in {estimate}."
+            )
+        return f"Your order {order_id} ({product}) is {status}."
 
     @staticmethod
     def _answer_from_context(messages: list[dict], last_user: str) -> str | None:
-        """Extrae el bloque CONTEXTO de los system messages y responde con el
-        fragmento más relacionado, citando la fuente por título. None si no hay contexto."""
-        context = ""
-        for m in messages:
-            if m.get("role") == "system" and "CONTEXTO" in str(m.get("content", "")):
-                context = m["content"]
-                break
+        """Answer with the context snippet that matches the question's keywords,
+        citing the source by title. None when there is no context."""
+        context = next(
+            (
+                m["content"]
+                for m in messages
+                if m.get("role") == "system" and "CONTEXT" in str(m.get("content", ""))
+            ),
+            "",
+        )
         if not context:
             return None
 
-        # km de keywords -> fuente para routing simple.
-        user_tokens = set(_tokenize(last_user))
         keywords = {
-            "garant": 0,
-            "devol": 1,
-            "envio": 2,
-            "reembols": 3,
-            "contact": 4, "queja": 4, "soporte": 4, "factur": 4, "legal": 4,
-            "disputa": 4, "trato": 4, "empleado": 4,
+            "warrant": 0, "guarantee": 0,
+            "return": 1,
+            "ship": 2, "deliver": 2,
+            "refund": 3,
+            "contact": 4, "complain": 4, "support": 4, "billing": 4, "legal": 4,
+            "dispute": 4, "employee": 4,
         }
         best: tuple[str, int] | None = None
-        for token in user_tokens:
+        for token in _tokenize(last_user):
             for kw, idx in keywords.items():
                 if token.startswith(kw) and (best is None or len(kw) > len(best[0])):
                     best = (kw, idx)
-
         if best is None:
             return None
-        _, idx = best
-        snippet = re.search(
-            rf"\[fuente:{idx}\][^\n]*\n([^\[]+)", context
-        )
+
+        idx = best[1]
+        snippet = re.search(rf"\[source:{idx}\][^\n]*\n([^\[]+)", context)
         if snippet and snippet.group(1).strip():
-            return snippet.group(1).strip() + f" (Fuente: {DOCUMENTS[idx].title})"
-        return "Según la política de soporte, contacta a soporte@tiendahogar.example."
+            return snippet.group(1).strip() + f" (Source: {DOCUMENTS[idx].title})"
+        return f"Per our support policy, please contact {SUPPORT_EMAIL}."
 
 
 def build_client(settings=None) -> LLMClient:
-    """Construye el cliente LLM según la configuración."""
+    """Build the LLM client from the settings."""
     from tiendahogar.config import get_settings
 
     settings = settings or get_settings()

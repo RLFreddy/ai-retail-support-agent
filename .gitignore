@@ -11,7 +11,7 @@ scripts/benchmarks/reports/
 # Archivos de trabajo local (prueba, puesto, zips, doc unificado)
 others/
 
-# Tape VHS de la demo (regenerable); el GIF sí va versionado para el README
+# Demo VHS tape (regenerable); the GIF itself is versioned for the README
 assets/demo.tape
 
 # Config / secretos

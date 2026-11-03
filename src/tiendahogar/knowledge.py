@@ -1,90 +1,92 @@
-"""Base de conocimiento de TiendaHogar.
+"""TiendaHogar knowledge base.
 
-Contiene los 5 documentos de política entregados en la prueba técnica, usados
-TAL CUAL (sin editar). Cada documento se modela como un chunk único: son fuentes
-cortas (~1 párrafo), por lo que el chunking fino no aporta en este corpus.
+The 5 policy documents of the technical test, translated to English. Each
+document is a single chunk: they are about one paragraph long, so finer
+chunking adds nothing for this corpus.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
+SUPPORT_EMAIL = "support@tiendahogar.example"
+
 
 @dataclass(frozen=True)
 class Document:
-    """Un documento de la base de conocimiento."""
+    """A knowledge base document."""
 
     id: str
     title: str
     content: str
 
 
-#: Los 5 documentos — textos exactos de la especificación.
 DOCUMENTS: list[Document] = [
     Document(
-        id="garantia",
-        title="Política de garantía",
+        id="warranty",
+        title="Warranty policy",
         content=(
-            "Todos los electrodomésticos grandes (refrigeradoras, lavadoras, estufas) "
-            "tienen garantía de 12 meses desde la fecha de compra. Electrodomésticos "
-            "pequeños (licuadoras, planchas, tostadoras) tienen garantía de 6 meses. "
-            "La garantía cubre defectos de fábrica, no daños por mal uso."
+            "All large appliances (refrigerators, washing machines, stoves) have a "
+            "warranty of 12 months from the date of purchase. Small appliances "
+            "(blenders, irons, toasters) have a warranty of 6 months. The warranty "
+            "covers manufacturing defects, not damage caused by misuse."
         ),
     ),
     Document(
-        id="devoluciones",
-        title="Política de devoluciones",
+        id="returns",
+        title="Returns policy",
         content=(
-            "Los productos pueden devolverse dentro de 30 días de la compra si están "
-            "sin usar y en su empaque original. Devoluciones después de 30 días solo "
-            "se aceptan si el producto tiene un defecto cubierto por garantía. No se "
-            "aceptan devoluciones de productos personalizados o en oferta final "
-            '("liquidación").'
+            "Products can be returned within 30 days of purchase if they are unused "
+            "and in their original packaging. Returns after 30 days are only accepted "
+            "if the product has a defect covered by the warranty. Customized products "
+            'and final sale ("clearance") items cannot be returned.'
         ),
     ),
     Document(
-        id="envios",
-        title="Tiempos de envío",
+        id="shipping",
+        title="Shipping times",
         content=(
-            "Envíos a la capital: 2-3 días hábiles. Envíos a otras ciudades: 5-7 días "
-            "hábiles. Envíos internacionales no están disponibles actualmente."
+            "Shipping to the capital: 2-3 business days. Shipping to other cities: "
+            "5-7 business days. International shipping is not currently available."
         ),
     ),
     Document(
-        id="reembolsos",
-        title="Reembolsos",
+        id="refunds",
+        title="Refunds",
         content=(
-            "Los reembolsos se procesan en 5-10 días hábiles después de recibir el "
-            "producto devuelto. Se reembolsa al mismo método de pago original. "
-            "Reembolsos mayores a $500 requieren aprobación de un supervisor humano — "
-            "el agente no debe aprobarlos automáticamente."
+            "Refunds are processed within 5-10 business days after the returned "
+            "product is received. The money goes back to the original payment method. "
+            "Refunds over $500 require approval from a human supervisor — the agent "
+            "must not approve them automatically."
         ),
     ),
     Document(
-        id="contacto",
-        title="Canales de contacto",
+        id="contact",
+        title="Contact channels",
         content=(
-            "Para quejas sobre el trato de un empleado, disputas de facturación, o "
-            "cualquier tema legal, el cliente debe ser referido a un agente humano en "
-            "soporte@tiendahogar.example — el asistente de IA no debe intentar resolver "
-            "estos casos."
+            "For complaints about how an employee treated a customer, billing "
+            "disputes, or any legal matter, the customer must be referred to a human "
+            f"agent at {SUPPORT_EMAIL} — the AI assistant must not try to resolve "
+            "these cases."
         ),
     ),
 ]
 
+
 def default_system_prompt() -> str:
-    """Prompt de sistema que persigue grounding estricto (no inventar)."""
+    """System prompt that enforces strict grounding (never invent)."""
     return (
-        "Eres el asistente de soporte de TiendaHogar, una tienda de electrodomésticos.\n"
-        "Reglas:\n"
-        "1. Usa SOLO la información de los documentos provistos o de la tool "
-        "consultar_estado_pedido. NUNCA inventes políticas, plazos ni estados de pedidos.\n"
-        "2. Responde en español, con frases breves y amables.\n"
-        "3. Cita al final, con el formato (Fuente: <título del documento>), el documento "
-        "del que tomaste cada dato (p. ej. (Fuente: Política de garantía)).\n"
-        "4. Si la pregunta no tiene respuesta en los documentos, responde que no tienes "
-        "esa información y sugiere contactar soporte@tiendahogar.example.\n"
-        "5. Reembolsos mayores a $500 NO pueden ser aprobados por ti: indícalo y deriva.\n"
-        "6. Quejas de trato de empleados, disputas de facturación y temas legales: "
-        "NO intentes resolverlos, refiere al cliente a soporte@tiendahogar.example.\n"
+        "You are the support assistant of TiendaHogar, a home appliance store.\n"
+        "Rules:\n"
+        "1. Use ONLY the information in the provided documents or from the "
+        "get_order_status tool. NEVER invent policies, deadlines or order statuses.\n"
+        "2. Answer in English, in short and friendly sentences.\n"
+        "3. At the end, cite the document behind each fact with the format "
+        "(Source: <document title>), e.g. (Source: Warranty policy).\n"
+        "4. If the documents do not answer the question, say you do not have that "
+        f"information and suggest contacting {SUPPORT_EMAIL}.\n"
+        "5. You CANNOT approve refunds over $500: say so and refer the customer.\n"
+        "6. Complaints about how an employee treated a customer, billing disputes "
+        f"and legal matters: do NOT try to resolve them, refer the customer to "
+        f"{SUPPORT_EMAIL}.\n"
     )

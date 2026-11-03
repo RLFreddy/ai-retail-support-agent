@@ -1,31 +1,17 @@
-"""Servidor MCP (FastMCP) que expone las tools de TiendaHogar.
+"""MCP server (FastMCP) that exposes the TiendaHogar order tool over stdio.
 
-Los servidores MCP consumen un JSON-RPC por stdio (o SSE); el agente queda
-independiente: FastMCP genera el schema de la tool desde la firma/docstring.
-Ejecutar: ``uv run python -m tiendahogar.mcp_server``
+FastMCP builds the tool schema from the function signature and docstring.
+Run it with ``tiendahogar mcp``.
 """
 
 from __future__ import annotations
 
 from fastmcp import FastMCP
 
-from tiendahogar.tools import consultar_estado_pedido
+from tiendahogar.tools import get_order_status
 
 mcp = FastMCP("tiendahogar")
-
-
-@mcp.tool()
-def consultar_estado_pedido_mcp(order_id: str) -> dict:
-    """Consulta el estado de un pedido de TiendaHogar por su order_id (ORD-XXXX).
-
-    Args:
-        order_id: Identificador del pedido, formato ORD-XXXX.
-
-    Returns:
-        dict con producto, estado y entrega estimada; ``encontrado`` es False
-        si el pedido no existe.
-    """
-    return consultar_estado_pedido(order_id)
+mcp.tool(get_order_status)
 
 
 if __name__ == "__main__":

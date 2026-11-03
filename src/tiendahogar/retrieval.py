@@ -1,24 +1,12 @@
-"""Capa de recuperación (RAG) del agente TiendaHogar.
+"""Retrieval layer of the TiendaHogar agent.
 
-Diseño:
-- ``BaseRetriever``: protocolo común.
-- ``TfidfRetriever``: retriever por defecto, determinista y sin red, basado en
-  scikit-learn ``TfidfVectorizer``. El tokenizer es propio (minúsculas, folding
-  de acentos) y se filtran las palabras funcionales del español
-  (``SPANISH_STOP_WORDS``): esa configuración elimina los scores espurios que
-  el vectorizer por defecto daba por términos de parada compartidos, el motivo
-  por el que antes se implementaba el TF-IDF a mano. Ver SUBMISSION.md.
-- ``SemanticRetriever``: embeddings vía LiteLLM (TEI local bge-m3, OpenRouter,
-  OpenAI o Gemini), con rerank opcional: el cross-encoder local se llama por
-  HTTP directo a TEI ``/rerank`` (TEI no está entre los proveedores de rerank
-  de litellm); los rerankers en la nube van por ``litellm.rerank`` (Cohere,
-  Jina, Together, Azure AI, ...). ``RERANK_ENABLED`` apaga el rerank por
-  completo para medir su impacto (benchmark) o ahorrar latencia/costo.
-- Umbral de relevancia: si ningún documento lo supera, retrieval retorna vacío
-  → el agente NO responde con información inventada.
+- ``TfidfRetriever``: default, deterministic and offline (scikit-learn TF-IDF
+  with an accent-folding tokenizer and English stop words).
+- ``SemanticRetriever``: embeddings through LiteLLM (local TEI with bge-m3,
+  OpenRouter, OpenAI or Gemini) with optional reranking.
 
-Nota de diseño (corpus de 5 docs): cada documento es un único chunk; el
-chunking fino se evita a propósito, ver SUBMISSION.md.
+When no document reaches the relevance threshold, retrieval returns nothing and
+the agent does not answer with invented information.
 """
 
 from __future__ import annotations
@@ -37,7 +25,7 @@ from tiendahogar.knowledge import DOCUMENTS, Document
 
 @dataclass(frozen=True)
 class RetrievalResult:
-    """Documento recuperado con su score de relevancia."""
+    """A retrieved document with its relevance score."""
 
     document: Document
     score: float
@@ -52,44 +40,33 @@ class RetrievalResult:
 
 
 class BaseRetriever(Protocol):
-    """Interfaz común de los retrievers."""
+    """Common retriever interface."""
 
     def retrieve(self, query: str, top_k: int = 3, threshold: float = 0.15) -> list[RetrievalResult]:
         ...
 
 
 def _tokenize(text: str) -> list[str]:
-    """Tokenización simple para español (minúsculas, folding de acentos vía NFKD)."""
+    """Lowercase, fold accents (NFKD) and split into alphanumeric tokens."""
     text = unicodedata.normalize("NFKD", text.lower())
     text = "".join(ch for ch in text if unicodedata.category(ch) != "Mn")
     return re.findall(r"[a-z0-9]+", text)
 
 
-#: Palabras funcionales del español (forma tokenizada: minúsculas, sin acentos).
-#: Solo palabras de función (artículos, preposiciones, pronombres, verbos
-#: auxiliares comunes) — NUNCA palabras de contenido como "garantia", "devolucion".
-SPANISH_STOP_WORDS: frozenset[str] = frozenset({
-    "a", "al", "ante", "bajo", "cabe", "con", "contra", "de", "del", "desde",
-    "el", "en", "entre", "hacia", "hasta", "la", "las", "los", "lo", "su",
-    "sus", "para", "por", "sin", "sobre", "tras", "un", "una", "unos", "unas",
-    "y", "o", "u", "ni", "pero", "que", "si", "se", "es", "son", "esta",
-    "estan", "no", "me", "te", "nos", "les", "ya", "hay",
+#: English function words (tokenized form). Content words never go here.
+STOP_WORDS: frozenset[str] = frozenset({
+    "a", "an", "the", "and", "or", "but", "if", "of", "to", "in", "on", "at",
+    "by", "for", "with", "from", "about", "as", "into", "is", "are", "was",
+    "be", "it", "its", "this", "that", "my", "me", "i", "you", "your", "we",
+    "our", "do", "does", "can", "how", "what", "when", "there",
 })
 
 
-# --------------------------------------------------------------------------- #
-# TfidfRetriever (scikit-learn)
-# --------------------------------------------------------------------------- #
 class TfidfRetriever:
-    """Retriever TF-IDF determinista con scikit-learn, sin red.
+    """Deterministic TF-IDF retriever (scikit-learn), no network.
 
-    ``TfidfVectorizer`` con el tokenizer propio (``_tokenize``) y las
-    ``SPANISH_STOP_WORDS``: al descartar palabras funcionales se evita que
-    queries irrelevantes obtengan scores espurios por términos de parada
-    compartidos (era el motivo por el que se evitaba sklearn antes).
-    Calibración: el umbral de relevancia (default 0.15) separa queries
-    relevantes (score >= 0.2) de irrelevantes (score <= 0.14), verificado por
-    tests y el golden set.
+    The default threshold (0.15) separates relevant queries from irrelevant
+    ones on this corpus; the tests and evals check it.
     """
 
     def __init__(self, documents: list[Document] = DOCUMENTS):
@@ -99,7 +76,7 @@ class TfidfRetriever:
             token_pattern=None,
             lowercase=False,
             norm="l2",
-            stop_words=list(SPANISH_STOP_WORDS),
+            stop_words=list(STOP_WORDS),
         )
         self._tfidf = self._vectorizer.fit_transform(
             [d.content for d in self.documents]
@@ -116,24 +93,13 @@ class TfidfRetriever:
         return [RetrievalResult(document=self.documents[i], score=score) for i, score in top]
 
 
-# --------------------------------------------------------------------------- #
-# SemanticRetriever (embeddings vía LiteLLM + rerank TEI opcional)
-# --------------------------------------------------------------------------- #
 class SemanticRetriever:
-    """Retriever semántico por embeddings a través de LiteLLM.
+    """Embedding retriever through LiteLLM.
 
-    Backends:
-      - ``tei``     : servidor TEI local (endpoint OpenAI-compatible) con bge-m3.
-      - ``openrouter``: qwen/qwen3-embedding-8b vía OpenRouter.
-      - ``openai``    : text-embedding-3-small vía OpenAI.
-      - ``gemini``    : text-embedding-004 vía Google Gemini.
-
-    Rerank (opcional, ``rerank_enabled``):
-      - Con ``rerank_url`` (TEI local): over-fetch (top_k * 2) y POST directo a
-        ``/rerank`` con el cross-encoder ``bge-reranker-v2-m3`` — TEI no está
-        entre los proveedores de rerank de litellm (docs.litellm.ai/docs/rerank).
-      - Con ``rerank_model`` (nube): ``litellm.rerank`` (Cohere, Jina, Together,
-        Azure AI, ...). Si ``rerank_enabled=False``, retrieval por coseno puro.
+    Backends: ``tei`` (local TEI, OpenAI-compatible, bge-m3), ``openrouter``,
+    ``openai`` and ``gemini``. With ``rerank_enabled`` the candidates go
+    through a cross-encoder: TEI ``/rerank`` over HTTP when ``rerank_url`` is
+    set, otherwise ``litellm.rerank`` with ``rerank_model``.
     """
 
     def __init__(
@@ -187,12 +153,10 @@ class SemanticRetriever:
         return [RetrievalResult(document=self.documents[i], score=score) for i, score in top]
 
     def _rerank_tei(self, query: str, scored: list[tuple[int, float]], top_n: int) -> list[tuple[int, float]]:
-        """Cross-encoder local de TEI: HTTP directo a ``/rerank`` (litellm no
-        cubre TEI como proveedor de rerank).
+        """Local TEI cross-encoder over HTTP ``/rerank``.
 
-        API de TEI: el payload espera ``texts`` (no ``documents``) y responde un
-        arreglo plano ``[{"index": int, "score": float}, ...]`` ya ordenado por
-        relevancia descendente. Se respeta ese orden (no se re-ordena por index).
+        TEI expects ``texts`` and returns ``[{"index", "score"}, ...]`` already
+        sorted by relevance; that order is kept.
         """
         import httpx
 
@@ -209,7 +173,7 @@ class SemanticRetriever:
         return out
 
     def _rerank_litellm(self, query: str, scored: list[tuple[int, float]], top_n: int) -> list[tuple[int, float]]:
-        """Reranker en la nube vía ``litellm.rerank`` (Cohere/Jina/Together/...)."""
+        """Cloud reranker through ``litellm.rerank``."""
         import litellm
 
         docs = [self.documents[i].content for i, _ in scored]
@@ -227,16 +191,8 @@ class SemanticRetriever:
         return out
 
 
-# --------------------------------------------------------------------------- #
-# Factory
-# --------------------------------------------------------------------------- #
 def build_retriever(settings=None) -> BaseRetriever:
-    """Construye el retriever según la configuración (embeddings_backend).
-
-    Rerank: ``RERANK_ENABLED`` lo activa. Con backend ``tei`` usa el cross-encoder
-    local por HTTP a ``/rerank`` (``tei_rerank_model``); con backends en la nube
-    (openrouter/openai/gemini) usa ``litellm.rerank`` (``rerank_model``).
-    """
+    """Build the retriever for the configured embedding backend."""
     from tiendahogar.config import EMBEDDING_KEY_ENV, get_settings
 
     settings = settings or get_settings()
@@ -271,7 +227,3 @@ def build_retriever(settings=None) -> BaseRetriever:
         rerank_url=rerank_url,
         rerank_model=rerank_model,
     )
-
-
-#: Alias usado por tests/factory.
-Retriever = TfidfRetriever

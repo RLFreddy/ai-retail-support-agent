@@ -8,10 +8,10 @@ from tiendahogar.config import Settings
 
 
 def test_ask_answers_in_mock_mode(capsys):
-    assert cli.main(["ask", "¿Cuánto dura la garantía de una refrigeradora?"]) == 0
+    assert cli.main(["ask", "How long is the warranty on a refrigerator?"]) == 0
     out = capsys.readouterr().out.lower()
     assert "mock (no api key)" in out
-    assert "garantía" in out
+    assert "warranty" in out
 
 
 def test_no_command_starts_the_chat(monkeypatch):

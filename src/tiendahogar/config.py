@@ -1,8 +1,7 @@
-"""Configuración central del agente (pydantic-settings).
+"""Agent settings (pydantic-settings).
 
-Carga variables de entorno (.env) automáticamente, con tipos y defaults
-seguros. Sin API keys → modo mock determinista (idéntico para tests y demo
-offline).
+Read from environment variables and ``.env``. Without an API key the agent
+runs with the deterministic mock LLM.
 """
 
 from __future__ import annotations
@@ -15,7 +14,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from tiendahogar.knowledge import default_system_prompt
 
-#: Variable de entorno de la API key por proveedor LiteLLM.
+#: API key environment variable per LiteLLM provider.
 PROVIDER_KEY_ENV: dict[str, str] = {
     "groq": "GROQ_API_KEY",
     "openrouter": "OPENROUTER_API_KEY",
@@ -24,7 +23,7 @@ PROVIDER_KEY_ENV: dict[str, str] = {
     "gemini": "GEMINI_API_KEY",
 }
 
-#: Pares (variable de entorno, atributo de Settings).
+#: (environment variable, Settings attribute) pairs.
 _KEY_FIELDS: tuple[tuple[str, str], ...] = (
     ("GROQ_API_KEY", "groq_api_key"),
     ("OPENROUTER_API_KEY", "openrouter_api_key"),
@@ -33,7 +32,7 @@ _KEY_FIELDS: tuple[tuple[str, str], ...] = (
     ("GEMINI_API_KEY", "gemini_api_key"),
 )
 
-#: Variable de entorno de la key para cada backend de embeddings (no-LLM).
+#: API key environment variable per embedding backend.
 EMBEDDING_KEY_ENV: dict[str, str] = {
     "openrouter": "OPENROUTER_API_KEY",
     "openai": "OPENAI_API_KEY",
@@ -42,12 +41,12 @@ EMBEDDING_KEY_ENV: dict[str, str] = {
 
 
 def provider_key_env(model: str) -> str:
-    """Nombre de la variable de entorno de la key para un modelo LiteLLM."""
+    """Name of the API key environment variable for a LiteLLM model."""
     return PROVIDER_KEY_ENV.get(model.split("/")[0], "")
 
 
 class Settings(BaseSettings):
-    """Settings tipadas; las variables de entorno se mapean case-insensitive
+    """Typed settings; environment variables match case-insensitively
     (``GROQ_API_KEY`` → ``groq_api_key``)."""
 
     model_config = SettingsConfigDict(
@@ -61,8 +60,8 @@ class Settings(BaseSettings):
     tei_base_url: str = ""
     tei_embed_model: str = "openai/BAAI/bge-m3"
     tei_rerank_model: str = "BAAI/bge-reranker-v2-m3"
-    #: URL del servidor TEI del cross-encoder (bge-reranker-v2-m3), separado del
-    #: de embeddings porque son 2 contenedores. Vacía → no hay rerank local.
+    #: URL of the TEI cross-encoder server (bge-reranker-v2-m3), a separate
+    #: container from the embeddings one.
     tei_rerank_base_url: str = ""
     openrouter_embed_model: str = "qwen/qwen3-embedding-8b"
     openai_embed_model: str = "openai/text-embedding-3-small"
@@ -71,34 +70,32 @@ class Settings(BaseSettings):
     rerank_model: str = "cohere/rerank-v3.5"
     top_k: int = 3
     relevance_threshold: float = 0.15
-    #: Umbral de relevancia para embeddings (otra escala de cosines, ~0.3-0.8).
-    #: El 0.15 está calibrado para TF-IDF (0.1-0.4); con bge-m3 todo pasaba.
+    #: Relevance threshold for embeddings (cosine scale ~0.3-0.8); 0.15 is
+    #: calibrated for TF-IDF (~0.1-0.4).
     semantic_threshold: float = 0.56
     max_turns: int = 2
-    system_prompt: str = "auto"  # "auto" | ruta a un .txt | texto literal
+    system_prompt: str = "auto"  # "auto" | path to a .txt | literal text
 
     groq_api_key: str = ""
     openrouter_api_key: str = ""
     openai_api_key: str = ""
     anthropic_api_key: str = ""
     gemini_api_key: str = ""
-    #: Keys de proveedores de rerank en la nube (vía litellm.rerank). No entran
-    #: en ``api_keys`` para no interferir con el chequeo de LLM (has_llm_key).
+    #: Cloud rerank provider keys (litellm.rerank); kept out of ``api_keys``.
     cohere_api_key: str = ""
     jina_api_key: str = ""
     together_api_key: str = ""
 
     @property
     def retrieval_threshold(self) -> float:
-        """Umbral de relevancia según el backend: TF-IDF (offline) usa 0.15
-        (escala 0.1-0.4); embeddings semánticos usan 0.60 (cosines ~0.3-0.8)."""
+        """Relevance threshold for the active backend."""
         if self.embedding_backend == "offline":
             return self.relevance_threshold
         return self.semantic_threshold
 
     @property
     def api_keys(self) -> dict[str, str]:
-        """API keys no vacías, por nombre de variable original."""
+        """Non-empty API keys, by environment variable name."""
         return {
             env: getattr(self, attr)
             for env, attr in _KEY_FIELDS
@@ -107,7 +104,7 @@ class Settings(BaseSettings):
 
     @property
     def has_llm_key(self) -> bool:
-        """¿Hay key para el proveedor del modelo? Sin proveedor conocido, cualquier key."""
+        """Whether the model's provider has a key (any key for unknown providers)."""
         key_env = provider_key_env(self.llm_model)
         if key_env:
             return bool(self.api_keys.get(key_env))
@@ -115,8 +112,8 @@ class Settings(BaseSettings):
 
     @property
     def system_prompt_text(self) -> str:
-        """Resuelve ``SYSTEM_PROMPT``: ``auto`` → prompt por defecto; una ruta →
-        contenido del archivo; cualquier otro valor se usa como texto literal."""
+        """Resolve ``SYSTEM_PROMPT``: ``auto`` → default prompt; a file path →
+        its content; anything else is used as literal text."""
         if self.system_prompt == "auto":
             return default_system_prompt()
         path = Path(self.system_prompt)
@@ -127,5 +124,5 @@ class Settings(BaseSettings):
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    """Singleton de Settings."""
+    """Cached settings instance."""
     return Settings()

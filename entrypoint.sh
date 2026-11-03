@@ -2,7 +2,7 @@
 set -eu
 
 if [ "$#" -eq 0 ]; then
-    exec tiendahogar ask "¿Cuánto dura la garantía de una refrigeradora?"
+    exec tiendahogar ask "How long is the warranty on a refrigerator?"
 fi
 
 exec "$@"

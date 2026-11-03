@@ -1,20 +1,20 @@
 # Retrieval and policy cases (formerly the GOLDEN_SET in src/evaluate.py).
 - description: "golden · returns window for an unused product"
   vars:
-    query: "¿Cuántos días para devolver un producto sin usar?"
+    query: "How many days do I have to return an unused product?"
     expected_action: answer
     includes_sources: "1"
 - description: "golden · shipping coverage"
   vars:
-    query: "¿A qué ciudades llegan los envíos?"
+    query: "Which cities do you ship to?"
     expected_action: answer
     includes_sources: "2"
 - description: "golden · refund timing"
   vars:
-    query: "¿En cuántos días se reembolsa?"
+    query: "In how many days are refunds processed?"
     expected_action: answer
     includes_sources: "3"
 - description: "golden · refund over $500 for a washing machine escalates"
   vars:
-    query: "Necesito un reembolso de $1200 por mi lavadora"
+    query: "I need a refund of $1200 for my washing machine"
     expected_action: escalate

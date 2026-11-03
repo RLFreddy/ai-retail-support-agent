@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Sonda (smoke test) del servidor MCP de TiendaHogar.
+"""Smoke test of the TiendaHogar MCP server.
 
-Levanta el servidor real (``uv run python -m tiendahogar.mcp_server``) como subproceso
-con transporte stdio, se conecta como cliente MCP, lista las tools expuestas y
-hace dos llamadas: un pedido válido (ORD-1002) y uno inexistente (ORD-9999).
+Starts the real server over stdio as a subprocess, connects as an MCP client,
+lists the tools and calls ``get_order_status`` with an existing order
+(ORD-1002) and an unknown one (ORD-9999).
 
-Uso:
+Usage:
     uv run python scripts/mcp_smoke_test.py
 
-Salida en español; código de salida 0 = todo bien, 1 = algo falló.
+Exit code 0 when everything works, 1 otherwise.
 """
 
 from __future__ import annotations
@@ -17,65 +17,35 @@ import asyncio
 import json
 import sys
 
+from mcp import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
-ORDER_OK = "ORD-1002"
-ORDER_BAD = "ORD-9999"
-
-
-def _ordenar(ids: list[str]) -> str:
-    return ", ".join(ids)
+TOOL = "get_order_status"
+CASES = (("ORD-1002", True), ("ORD-9999", False))
 
 
 async def main() -> int:
-    parametros = StdioServerParameters(
-        command=sys.executable,
-        args=["-m", "tiendahogar.mcp_server"],
-        env=None,
-    )
-
-    async with stdio_client(parametros) as (lectura, escritura):
-        from mcp import ClientSession
-
-        async with ClientSession(lectura, escritura) as sesion:
-            await sesion.initialize()
-            print(f"[1/3] Conexión stdio establecida -> {parametros.command} {' '.join(parametros.args)}")
-
-            tools = await sesion.list_tools()
-            nombres = [t.name for t in tools.tools]
-            print(f"[2/3] Tools expuestas ({len(nombres)}): {_ordenar(nombres)}")
-            if "consultar_estado_pedido_mcp" not in nombres:
-                print("ERROR: no se encontró la tool consultar_estado_pedido_mcp")
-                return 1
-
-            fallos = 0
-
-            for order_id, esperado in ((ORDER_OK, True), (ORDER_BAD, False)):
-                resultado = await sesion.call_tool("consultar_estado_pedido_mcp", {"order_id": order_id})
-                texto = "".join(bloque.text or "" for bloque in resultado.content)
-                try:
-                    payload = json.loads(texto)
-                except json.JSONDecodeError:
-                    payload = {"respuesta_bruta": texto}
-                encontrado = payload.get("encontrado", payload.get("respuesta_bruta"))
-                ok = bool(encontrado) == esperado
-                estado = "OK" if ok else "FALLO"
-                print(f"[3/3] Llamada {order_id}: {estado}")
-                print(f"      -> {texto.strip()}")
-                if not ok:
-                    fallos += 1
-
-            print("-" * 60)
-            if fallos == 0:
-                print("SMOKE TEST: TODO OK")
-                return 0
-            print(f"SMOKE TEST: {fallos} fallo(s)")
+    params = StdioServerParameters(command=sys.executable, args=["-m", "tiendahogar.mcp_server"])
+    async with stdio_client(params) as (read, write), ClientSession(read, write) as session:
+        await session.initialize()
+        names = [t.name for t in (await session.list_tools()).tools]
+        print(f"tools: {', '.join(names)}")
+        if TOOL not in names:
+            print(f"FAIL: tool {TOOL} not found")
             return 1
+
+        failures = 0
+        for order_id, expected in CASES:
+            result = await session.call_tool(TOOL, {"order_id": order_id})
+            text = "".join(getattr(block, "text", "") for block in result.content)
+            found = json.loads(text).get("found")
+            ok = found is expected
+            failures += not ok
+            print(f"{'OK  ' if ok else 'FAIL'} {order_id}: {text.strip()}")
+
+    print("smoke test passed" if failures == 0 else f"smoke test: {failures} failure(s)")
+    return 1 if failures else 0
 
 
 if __name__ == "__main__":
-    try:
-        raise SystemExit(asyncio.run(main()))
-    except Exception as exc:  # noqa: BLE001 - reporta y sale con error
-        print(f"ERROR: {exc!r}")
-        raise SystemExit(1)
+    raise SystemExit(asyncio.run(main()))

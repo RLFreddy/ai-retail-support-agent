@@ -24,7 +24,7 @@ from tiendahogar.config import Settings, get_settings
 
 console = Console()
 
-EXIT_WORDS = {"exit", "quit", "q", "salir"}
+EXIT_WORDS = {"exit", "quit", "q"}
 ACTION_STYLES = {"answer": "green", "refer": "yellow", "escalate": "red", "block": "red"}
 
 

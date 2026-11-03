@@ -1,9 +1,6 @@
-"""Tests de la capa RAG.
-
-Cubre el requisito mínimo: la recuperación trae el documento correcto para una
-pregunta clara (garantía), y el umbral de relevancia decide cuándo no hay contexto.
-También cubre el retriever semántico y el toggle de rerank (sin red: stubs).
-"""
+"""Retrieval tests: the right document for a clear question, the relevance
+threshold, and the semantic retriever with its rerank toggle (stubbed, no
+network)."""
 
 import types
 
@@ -12,13 +9,13 @@ from tiendahogar.knowledge import Document
 from tiendahogar.retrieval import SemanticRetriever, TfidfRetriever, build_retriever
 
 _DOCS = [
-    Document(id="d0", title="Garantía", content="Garantía de electrodomésticos."),
-    Document(id="d1", title="Envíos", content="Envíos a todo el país."),
+    Document(id="d0", title="Warranty", content="Appliance warranty."),
+    Document(id="d1", title="Shipping", content="Shipping nationwide."),
 ]
 
 
 def _semantic(monkeypatch, **kwargs) -> SemanticRetriever:
-    """SemanticRetriever sin red: docs fijos y ``_embed`` stub."""
+    """SemanticRetriever without network: fixed docs and a stubbed ``_embed``."""
     retriever = SemanticRetriever(documents=_DOCS, **kwargs)
     calls = {"n": 0}
 
@@ -33,29 +30,29 @@ def _semantic(monkeypatch, **kwargs) -> SemanticRetriever:
 
 
 class TestSemanticRetriever:
-    def test_rerank_desactivado_no_llama_a_tei(self, monkeypatch):
+    def test_rerank_disabled_does_not_call_tei(self, monkeypatch):
         retriever, _ = _semantic(
             monkeypatch, backend="tei", rerank_url="http://tei/rerank", rerank_model="bge"
         )
         called: list[bool] = []
         monkeypatch.setattr(retriever, "_rerank_tei", lambda *a, **k: called.append(True) or [])
-        results = retriever.retrieve("hola", top_k=2, threshold=0.0)
+        results = retriever.retrieve("hello", top_k=2, threshold=0.0)
         assert called == []
         assert [r.doc_id for r in results] == ["d0", "d1"]
 
-    def test_rerank_tei_activado_ejecuta_el_crossencoder(self, monkeypatch):
+    def test_tei_rerank_enabled_runs_the_cross_encoder(self, monkeypatch):
         retriever, _ = _semantic(
             monkeypatch, backend="tei", rerank_url="http://tei/rerank", rerank_enabled=True
         )
         called: list[bool] = []
         monkeypatch.setattr(retriever, "_rerank_tei", lambda *a, **k: called.append(True) or [(0, 0.9)])
-        results = retriever.retrieve("hola", top_k=1, threshold=0.0)
+        results = retriever.retrieve("hello", top_k=1, threshold=0.0)
         assert called == [True]
         assert results[0].doc_id == "d0"
 
-    def test_rerank_tei_envia_texts_y_parsea_array_plano(self, monkeypatch):
-        """Regresión P0: TEI espera `texts` (no `documents`) y responde un array
-        plano [[index, score], ...] ya ordenado por relevancia; no se re-ordena."""
+    def test_tei_rerank_sends_texts_and_keeps_tei_order(self, monkeypatch):
+        """TEI expects `texts` (not `documents`) and returns a flat array already
+        sorted by relevance, which must be kept."""
         import httpx
 
         retriever, _ = _semantic(
@@ -76,15 +73,15 @@ class TestSemanticRetriever:
             )
 
         monkeypatch.setattr(httpx, "post", fake_post)
-        results = retriever.retrieve("hola", top_k=2, threshold=0.0)
+        results = retriever.retrieve("hello", top_k=2, threshold=0.0)
         assert captured["url"] == "http://tei/rerank"
         assert captured["json"]["texts"] == [d.content for d in _DOCS]
         assert "documents" not in captured["json"]
         assert captured["json"]["model"] == "BAAI/bge-reranker-v2-m3"
-        assert [r.score for r in results] == [0.99, 0.01]  # respeta el orden TEI
+        assert [r.score for r in results] == [0.99, 0.01]
         assert [r.doc_id for r in results] == ["d1", "d0"]
 
-    def test_rerank_nube_usa_litellm_y_mapea_indices(self, monkeypatch):
+    def test_cloud_rerank_uses_litellm_and_maps_indices(self, monkeypatch):
         retriever, _ = _semantic(
             monkeypatch,
             backend="openai",
@@ -103,11 +100,11 @@ class TestSemanticRetriever:
             )
 
         monkeypatch.setattr("litellm.rerank", fake_rerank)
-        results = retriever.retrieve("hola", top_k=2, threshold=0.0)
+        results = retriever.retrieve("hello", top_k=2, threshold=0.0)
         assert called == [True]
         assert [r.doc_id for r in results] == ["d0", "d1"]
 
-    def test_rerank_nube_pone_primero_el_doc_que_gana(self, monkeypatch):
+    def test_cloud_rerank_puts_the_winner_first(self, monkeypatch):
         retriever, _ = _semantic(
             monkeypatch,
             backend="openai",
@@ -119,22 +116,22 @@ class TestSemanticRetriever:
             return [(1, 0.99), (0, 0.01)]
 
         monkeypatch.setattr(retriever, "_rerank_litellm", fake_rerank)
-        results = retriever.retrieve("hola", top_k=2, threshold=0.0)
+        results = retriever.retrieve("hello", top_k=2, threshold=0.0)
         assert [r.doc_id for r in results] == ["d1", "d0"]
 
 
 class TestBuildRetriever:
-    def test_offline_por_defecto_devuelve_tfidf(self):
+    def test_offline_backend_builds_tfidf(self):
         assert isinstance(build_retriever(Settings(embedding_backend="offline")), TfidfRetriever)
 
-    def test_umbral_por_backend_offline_usa_015(self):
+    def test_offline_threshold_is_015(self):
         assert Settings(embedding_backend="offline").retrieval_threshold == 0.15
 
-    def test_umbral_por_backend_embeddings_usa_056(self):
+    def test_semantic_threshold_is_056(self):
         assert Settings(embedding_backend="tei").retrieval_threshold == 0.56
         assert Settings(embedding_backend="openai").retrieval_threshold == 0.56
 
-    def test_tei_conecta_rerank_local(self):
+    def test_tei_wires_the_local_rerank(self):
         r = build_retriever(
             Settings(
                 embedding_backend="tei",
@@ -146,7 +143,7 @@ class TestBuildRetriever:
         assert r.rerank_url == "http://localhost:8080/v1/rerank"
         assert not r.rerank_enabled
 
-    def test_tei_rerank_usuario_ruta_separada_si_la_hay(self):
+    def test_tei_rerank_uses_its_own_url_when_set(self):
         r = build_retriever(
             Settings(
                 embedding_backend="tei",
@@ -156,7 +153,7 @@ class TestBuildRetriever:
         )
         assert r.rerank_url == "http://localhost:8001/rerank"
 
-    def test_openai_selecciona_modelo_y_key(self):
+    def test_openai_selects_model_and_key(self):
         r = build_retriever(
             Settings(
                 embedding_backend="openai",
@@ -171,40 +168,32 @@ class TestBuildRetriever:
         assert r.rerank_model == "cohere/rerank-v3.5"
 
 
-def test_rag_trae_documento_correcto_para_garantia():
-    retriever = TfidfRetriever()
-    results = retriever.retrieve("¿Cuánto dura la garantía de una refrigeradora?", top_k=1)
-    assert results, "debería recuperar al menos un documento"
-    assert results[0].doc_id == "garantia"
+def test_warranty_question_retrieves_the_warranty_document():
+    results = TfidfRetriever().retrieve("How long is the warranty on a refrigerator?", top_k=1)
+    assert results
+    assert results[0].doc_id == "warranty"
 
 
-def test_rag_devuelve_no_resultados_con_query_irrelevante():
-    retriever = TfidfRetriever()
-    results = retriever.retrieve("zzz qwerty asdf jkl", top_k=3, threshold=0.25)
-    assert results == []
+def test_irrelevant_query_returns_nothing():
+    assert TfidfRetriever().retrieve("zzz qwerty asdf jkl", top_k=3, threshold=0.25) == []
 
 
-def test_rag_no_devuelve_contexto_por_debajo_del_umbral():
-    retriever = TfidfRetriever()
-    results = retriever.retrieve("el clima de la ciudad", top_k=3, threshold=0.99)
-    assert results == []
+def test_nothing_below_the_threshold_is_returned():
+    assert TfidfRetriever().retrieve("the weather in the city", top_k=3, threshold=0.99) == []
 
 
-def test_rag_orden_por_relevancia_descendente():
-    retriever = TfidfRetriever()
-    results = retriever.retrieve("política de devoluciones de productos sin usar", top_k=3)
+def test_results_are_sorted_by_score():
+    results = TfidfRetriever().retrieve("returns policy for unused products", top_k=3)
     assert results
     scores = [r.score for r in results]
     assert scores == sorted(scores, reverse=True)
 
 
-def test_rag_top_k_limita_resultados():
-    retriever = TfidfRetriever()
-    results = retriever.retrieve("garantía de productos y devoluciones", top_k=2, threshold=0.0)
+def test_top_k_limits_the_results():
+    results = TfidfRetriever().retrieve("warranty and returns", top_k=2, threshold=0.0)
     assert len(results) == 2
 
 
-def test_rag_retorna_citas_en_formato_esperado():
-    retriever = TfidfRetriever()
-    results = retriever.retrieve("¿a dónde debo escribir una queja sobre un empleado?", top_k=2)
-    assert any(r.doc_id == "contacto" for r in results)
+def test_employee_complaint_retrieves_the_contact_channels():
+    results = TfidfRetriever().retrieve("where do I send a complaint about an employee?", top_k=2)
+    assert any(r.doc_id == "contact" for r in results)

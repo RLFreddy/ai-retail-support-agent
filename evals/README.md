@@ -19,7 +19,8 @@ Each case sends one customer message to the agent and grades its **decision**
 
 ```bash
 make eval    # deterministic suite; exit code 100 if any case fails
-make bench   # real-model matrix; needs the API key in .env and the TEI containers
+make bench   # real-model matrix, 3 runs each; needs the API key in .env and the TEI containers
+make bench VARIANTS='lexical$'   # only the variants that need no TEI container
 npx promptfoo@0.124.1 view   # browse the last results
 ```
 

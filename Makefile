@@ -34,9 +34,11 @@ eval: ## Deterministic evals: mock model, lexical retrieval (fails below 100%)
 	uv sync --locked --all-extras --quiet
 	$(PROMPTFOO) eval -c evals/promptfooconfig.yaml --no-cache
 
-bench: ## Real-model variant matrix (needs .env with the API key and the TEI containers)
+VARIANTS ?= .*
+bench: ## Real-model variant matrix; lexical only: make bench VARIANTS='lexical$$'
 	uv sync --locked --all-extras --quiet
-	$(PROMPTFOO) eval -c evals/promptfooconfig.bench.yaml --no-cache --env-file .env
+	$(PROMPTFOO) eval -c evals/promptfooconfig.bench.yaml --no-cache --env-file .env \
+		--filter-providers '$(VARIANTS)' -j 1 --repeat 3
 
 mcp-smoke: ## Start the MCP server and call its tool over stdio
 	uv run python scripts/mcp_smoke_test.py

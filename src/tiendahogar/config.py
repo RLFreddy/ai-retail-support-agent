@@ -13,8 +13,6 @@ from typing import Literal
 from pydantic import FilePath, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from tiendahogar.knowledge import default_system_prompt
-
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
@@ -24,7 +22,7 @@ class Settings(BaseSettings):
     llm_model: str = "groq:openai/gpt-oss-20b"
     #: Model requests per question: tool call, answer and one retry.
     max_requests: int = 3
-    #: Plain-text file that replaces the default system prompt.
+    #: Plain-text file that replaces the default system prompt (every language).
     system_prompt_file: FilePath | None = None
 
     #: Empty → lexical BM25 retrieval. Set it (with EMBEDDING_BASE_URL for a
@@ -54,9 +52,10 @@ class Settings(BaseSettings):
         return value
 
     @property
-    def system_prompt_text(self) -> str:
+    def system_prompt_override(self) -> str | None:
+        """The custom prompt, or ``None`` for the default of each language."""
         if self.system_prompt_file is None:
-            return default_system_prompt()
+            return None
         return self.system_prompt_file.read_text(encoding="utf-8")
 
 

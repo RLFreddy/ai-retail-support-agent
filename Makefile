@@ -13,7 +13,7 @@ help: ## List the targets
 # --- Development (host, needs uv; evals also need Node) ---------------------
 
 install: ## Install the dependencies and the git hooks
-	uv sync --locked
+	uv sync --locked --all-extras
 	uv run pre-commit install
 
 test: ## Run the test suite (hermetic: no network, no keys)
@@ -31,11 +31,11 @@ typecheck: ## Strict type check
 	uv run mypy
 
 eval: ## Deterministic evals: mock model, lexical retrieval (fails below 100%)
-	uv sync --locked --quiet
+	uv sync --locked --all-extras --quiet
 	$(PROMPTFOO) eval -c evals/promptfooconfig.yaml --no-cache
 
 bench: ## Real-model variant matrix (needs .env with the API key and the TEI containers)
-	uv sync --locked --quiet
+	uv sync --locked --all-extras --quiet
 	$(PROMPTFOO) eval -c evals/promptfooconfig.bench.yaml --no-cache --env-file .env
 
 mcp-smoke: ## Start the MCP server and call its tool over stdio

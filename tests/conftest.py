@@ -17,9 +17,13 @@ _SETTINGS_ENV = {name.upper() for name in config.Settings.model_fields}
 
 @pytest.fixture(autouse=True)
 def _hermetic_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Strip every Settings variable and any provider key or endpoint.
+    # Strip every Settings variable, any provider key or endpoint and the OTel exporter.
     for name in list(os.environ):
-        if name in _SETTINGS_ENV or name.endswith(("_API_KEY", "_BASE_URL")):
+        if (
+            name in _SETTINGS_ENV
+            or name.startswith("OTEL_")
+            or name.endswith(("_API_KEY", "_BASE_URL"))
+        ):
             monkeypatch.delenv(name, raising=False)
     # Never read the developer's .env file, neither through Settings nor
     # through the CLI's load_dotenv() (which feeds the provider keys).

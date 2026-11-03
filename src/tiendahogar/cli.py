@@ -11,7 +11,6 @@ Commands:
 from __future__ import annotations
 
 import argparse
-import logging
 import sys
 from importlib.metadata import PackageNotFoundError, version
 
@@ -24,6 +23,7 @@ from rich.prompt import Prompt
 from tiendahogar.agent import SupportAgent, build_agent
 from tiendahogar.config import Settings, get_settings
 from tiendahogar.domain import Action, AgentReply
+from tiendahogar.telemetry import configure_logging, configure_tracing
 
 console = Console()
 
@@ -119,9 +119,10 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     # Provider API keys are read from the environment by Pydantic AI.
     load_dotenv()
-    logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
+    settings = get_settings()
+    configure_logging(settings.log_level, settings.log_format)
+    configure_tracing()
     if args.version:
-        settings = get_settings()
         print(f"tiendahogar {package_version()}")
         print(describe_settings(settings, build_agent(settings)))
         return 0

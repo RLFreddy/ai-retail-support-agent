@@ -8,6 +8,7 @@ it at startup.
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import FilePath, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -38,6 +39,10 @@ class Settings(BaseSettings):
     #: BM25 and cosine scores live on different scales.
     lexical_threshold: float = 0.5
     semantic_threshold: float = 0.56
+
+    #: ``text`` or ``json`` (one object per line, for log pipelines).
+    log_format: Literal["text", "json"] = "text"
+    log_level: str = "WARNING"
 
     @field_validator("llm_model")
     @classmethod

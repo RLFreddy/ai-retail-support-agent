@@ -37,16 +37,17 @@ def test_version_prints_package_and_settings(monkeypatch, capsys):
     assert cli.main(["--version"]) == 0
     out = capsys.readouterr().out
     assert "tiendahogar 9.9.9" in out
-    assert "retrieval: offline (lexical)" in out
+    assert "retrieval: lexical (BM25)" in out
 
 
 @pytest.mark.parametrize(
     ("overrides", "expected"),
     [
-        ({}, "LLM: mock (no API key) · retrieval: offline (lexical) · rerank: off"),
+        ({}, "LLM: mock (no API key) · retrieval: lexical (BM25) · rerank: off"),
         (
-            {"groq_api_key": "gsk-x", "embedding_backend": "tei", "rerank_enabled": True},
-            "LLM: groq/openai/gpt-oss-20b · retrieval: semantic (tei) · rerank: on",
+            {"groq_api_key": "gsk-x", "embedding_model": "BAAI/bge-m3",
+             "rerank_url": "http://localhost:8001/rerank"},
+            "LLM: groq/openai/gpt-oss-20b · retrieval: semantic (BAAI/bge-m3) · rerank: on",
         ),
     ],
 )

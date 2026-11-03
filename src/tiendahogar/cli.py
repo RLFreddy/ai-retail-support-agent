@@ -32,11 +32,9 @@ def describe_settings(settings: Settings) -> str:
     """One line with the active model, retrieval backend and reranking."""
     llm = settings.llm_model if settings.has_llm_key else "mock (no API key)"
     retrieval = (
-        "offline (lexical)"
-        if settings.embedding_backend == "offline"
-        else f"semantic ({settings.embedding_backend})"
+        f"semantic ({settings.embedding_model})" if settings.embedding_model else "lexical (BM25)"
     )
-    rerank = "on" if settings.rerank_enabled else "off"
+    rerank = "on" if settings.rerank_url else "off"
     return f"LLM: {llm} · retrieval: {retrieval} · rerank: {rerank}"
 
 

@@ -16,7 +16,6 @@ from typing import Any, Protocol
 
 from tiendahogar.config import provider_key_env
 from tiendahogar.knowledge import DOCUMENTS, SUPPORT_EMAIL
-from tiendahogar.retrieval import _tokenize
 
 
 @dataclass(frozen=True)
@@ -174,7 +173,7 @@ class MockLLM:
             "dispute": 4, "employee": 4,
         }
         best: tuple[str, int] | None = None
-        for token in _tokenize(last_user):
+        for token in re.findall(r"[a-z0-9]+", last_user.lower()):
             for kw, idx in keywords.items():
                 if token.startswith(kw) and (best is None or len(kw) > len(best[0])):
                     best = (kw, idx)

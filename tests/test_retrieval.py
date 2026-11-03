@@ -1,199 +1,131 @@
-"""Retrieval tests: the right document for a clear question, the relevance
-threshold, and the semantic retriever with its rerank toggle (stubbed, no
-network)."""
+"""Retrieval tests: lexical BM25 on the real corpus, and the semantic retriever
+and TEI reranker with stubbed network calls."""
 
 import types
 
+import httpx
+import pytest
+
 from tiendahogar.config import Settings
 from tiendahogar.knowledge import Document
-from tiendahogar.retrieval import SemanticRetriever, TfidfRetriever, build_retriever
+from tiendahogar.retrieval import (
+    LexicalRetriever,
+    RetrievalResult,
+    SemanticRetriever,
+    TeiReranker,
+    build_retriever,
+)
 
-_DOCS = [
+DOCS = [
     Document(id="d0", title="Warranty", content="Appliance warranty."),
     Document(id="d1", title="Shipping", content="Shipping nationwide."),
 ]
 
 
-def _semantic(monkeypatch, **kwargs) -> SemanticRetriever:
-    """SemanticRetriever without network: fixed docs and a stubbed ``_embed``."""
-    retriever = SemanticRetriever(documents=_DOCS, **kwargs)
-    calls = {"n": 0}
+class FakeEmbeddings:
+    """OpenAI-like client: documents map to the axes, queries lean to d0."""
 
-    def fake_embed(texts: list[str]) -> list[list[float]]:
-        calls["n"] += 1
-        if len(texts) == 1:
-            return [[0.85, 0.15]]
-        return [[1.0, 0.0], [0.0, 1.0]]
+    def __init__(self):
+        self.embeddings = self
+        self.calls = 0
 
-    monkeypatch.setattr(retriever, "_embed", fake_embed)
-    return retriever, calls
-
-
-class TestSemanticRetriever:
-    def test_rerank_disabled_does_not_call_tei(self, monkeypatch):
-        retriever, _ = _semantic(
-            monkeypatch, backend="tei", rerank_url="http://tei/rerank", rerank_model="bge"
-        )
-        called: list[bool] = []
-        monkeypatch.setattr(retriever, "_rerank_tei", lambda *a, **k: called.append(True) or [])
-        results = retriever.retrieve("hello", top_k=2, threshold=0.0)
-        assert called == []
-        assert [r.doc_id for r in results] == ["d0", "d1"]
-
-    def test_tei_rerank_enabled_runs_the_cross_encoder(self, monkeypatch):
-        retriever, _ = _semantic(
-            monkeypatch, backend="tei", rerank_url="http://tei/rerank", rerank_enabled=True
-        )
-        called: list[bool] = []
-        monkeypatch.setattr(retriever, "_rerank_tei", lambda *a, **k: called.append(True) or [(0, 0.9)])
-        results = retriever.retrieve("hello", top_k=1, threshold=0.0)
-        assert called == [True]
-        assert results[0].doc_id == "d0"
-
-    def test_tei_rerank_sends_texts_and_keeps_tei_order(self, monkeypatch):
-        """TEI expects `texts` (not `documents`) and returns a flat array already
-        sorted by relevance, which must be kept."""
-        import httpx
-
-        retriever, _ = _semantic(
-            monkeypatch,
-            backend="tei",
-            rerank_url="http://tei/rerank",
-            rerank_enabled=True,
-            rerank_model="BAAI/bge-reranker-v2-m3",
-        )
-        captured: dict = {}
-
-        def fake_post(url, json=None, **kwargs):
-            captured["url"] = url
-            captured["json"] = json
-            return types.SimpleNamespace(
-                json=lambda: [{"index": 1, "score": 0.99}, {"index": 0, "score": 0.01}],
-                raise_for_status=lambda: None,
-            )
-
-        monkeypatch.setattr(httpx, "post", fake_post)
-        results = retriever.retrieve("hello", top_k=2, threshold=0.0)
-        assert captured["url"] == "http://tei/rerank"
-        assert captured["json"]["texts"] == [d.content for d in _DOCS]
-        assert "documents" not in captured["json"]
-        assert captured["json"]["model"] == "BAAI/bge-reranker-v2-m3"
-        assert [r.score for r in results] == [0.99, 0.01]
-        assert [r.doc_id for r in results] == ["d1", "d0"]
-
-    def test_cloud_rerank_uses_litellm_and_maps_indices(self, monkeypatch):
-        retriever, _ = _semantic(
-            monkeypatch,
-            backend="openai",
-            rerank_enabled=True,
-            rerank_model="cohere/rerank-v3.5",
-        )
-        called: list[bool] = []
-
-        def fake_rerank(model, query, documents, top_n):
-            called.append(True)
-            return types.SimpleNamespace(
-                results=[
-                    {"index": 0, "relevance_score": 0.9},
-                    {"index": 1, "relevance_score": 0.2},
-                ]
-            )
-
-        monkeypatch.setattr("litellm.rerank", fake_rerank)
-        results = retriever.retrieve("hello", top_k=2, threshold=0.0)
-        assert called == [True]
-        assert [r.doc_id for r in results] == ["d0", "d1"]
-
-    def test_cloud_rerank_puts_the_winner_first(self, monkeypatch):
-        retriever, _ = _semantic(
-            monkeypatch,
-            backend="openai",
-            rerank_enabled=True,
-            rerank_model="cohere/rerank-v3.5",
+    def create(self, model, input):
+        self.calls += 1
+        vectors = [[0.85, 0.15]] if len(input) == 1 else [[1.0, 0.0], [0.0, 1.0]]
+        return types.SimpleNamespace(
+            data=[types.SimpleNamespace(embedding=v) for v in vectors]
         )
 
-        def fake_rerank(query, scored, top_n):
-            return [(1, 0.99), (0, 0.01)]
 
-        monkeypatch.setattr(retriever, "_rerank_litellm", fake_rerank)
-        results = retriever.retrieve("hello", top_k=2, threshold=0.0)
-        assert [r.doc_id for r in results] == ["d1", "d0"]
+class TestLexical:
+    @pytest.mark.parametrize(
+        ("query", "doc_id"),
+        [
+            ("How long is the warranty on a refrigerator?", "warranty"),
+            ("How do I make a return?", "returns"),
+            ("Which cities do you ship to?", "shipping"),
+            ("In how many days are refunds processed?", "refunds"),
+            ("Where do I send a complaint about an employee?", "contact"),
+        ],
+    )
+    def test_clear_question_retrieves_its_document_first(self, query, doc_id):
+        assert LexicalRetriever().retrieve(query)[0].doc_id == doc_id
+
+    @pytest.mark.parametrize(
+        "query", ["What is the weather like on Mars?", "zzz qwerty", "How do I?", ""]
+    )
+    def test_unrelated_question_retrieves_nothing(self, query):
+        assert LexicalRetriever().retrieve(query) == []
+
+    def test_results_are_sorted_and_limited(self):
+        results = LexicalRetriever(threshold=0.0).retrieve(
+            "How many days do I have to return an unused product?", top_k=2
+        )
+        assert len(results) == 2
+        assert results[0].score >= results[1].score
+
+
+class TestSemantic:
+    def test_ranks_by_cosine_and_embeds_documents_once(self):
+        client = FakeEmbeddings()
+        retriever = SemanticRetriever(client, "m", documents=DOCS, threshold=0.0)
+        assert [r.doc_id for r in retriever.retrieve("q", top_k=2)] == ["d0", "d1"]
+        retriever.retrieve("q")
+        assert client.calls == 3  # documents once, then one call per query
+
+    def test_threshold_filters_weak_matches(self):
+        retriever = SemanticRetriever(FakeEmbeddings(), "m", documents=DOCS, threshold=0.5)
+        assert [r.doc_id for r in retriever.retrieve("q")] == ["d0"]
+
+    def test_reranker_reorders_the_candidates(self):
+        class Flip:
+            def rerank(self, query, results):
+                return [RetrievalResult(r.document, 1.0 - r.score) for r in reversed(results)]
+
+        retriever = SemanticRetriever(
+            FakeEmbeddings(), "m", documents=DOCS, threshold=0.0, reranker=Flip()
+        )
+        assert [r.doc_id for r in retriever.retrieve("q", top_k=1)] == ["d1"]
+
+
+def test_tei_reranker_sends_texts_and_keeps_tei_order(monkeypatch):
+    captured = {}
+
+    def fake_post(url, json, timeout):
+        captured.update(url=url, json=json)
+        return types.SimpleNamespace(
+            raise_for_status=lambda: None,
+            json=lambda: [{"index": 1, "score": 0.99}, {"index": 0, "score": 0.01}],
+        )
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    results = TeiReranker("http://tei:8001/rerank", "bge-reranker").rerank(
+        "q", [RetrievalResult(DOCS[0], 0.9), RetrievalResult(DOCS[1], 0.8)]
+    )
+    assert captured["url"] == "http://tei:8001/rerank"
+    assert captured["json"] == {
+        "query": "q", "texts": [d.content for d in DOCS], "model": "bge-reranker"
+    }
+    assert [(r.doc_id, r.score) for r in results] == [("d1", 0.99), ("d0", 0.01)]
 
 
 class TestBuildRetriever:
-    def test_offline_backend_builds_tfidf(self):
-        assert isinstance(build_retriever(Settings(embedding_backend="offline")), TfidfRetriever)
+    def test_lexical_by_default(self):
+        retriever = build_retriever(Settings())
+        assert isinstance(retriever, LexicalRetriever)
+        assert retriever.threshold == 0.5
 
-    def test_offline_threshold_is_015(self):
-        assert Settings(embedding_backend="offline").retrieval_threshold == 0.15
+    def test_embedding_model_enables_semantic_retrieval(self):
+        retriever = build_retriever(Settings(
+            embedding_model="BAAI/bge-m3", embedding_base_url="http://localhost:8080/v1"
+        ))
+        assert isinstance(retriever, SemanticRetriever)
+        assert retriever.threshold == 0.56
+        assert str(retriever.client.base_url).startswith("http://localhost:8080/v1")
+        assert retriever.reranker is None
 
-    def test_semantic_threshold_is_056(self):
-        assert Settings(embedding_backend="tei").retrieval_threshold == 0.56
-        assert Settings(embedding_backend="openai").retrieval_threshold == 0.56
-
-    def test_tei_wires_the_local_rerank(self):
-        r = build_retriever(
-            Settings(
-                embedding_backend="tei",
-                tei_base_url="http://localhost:8080/v1",
-                tei_rerank_base_url="",
-            )
-        )
-        assert isinstance(r, SemanticRetriever)
-        assert r.rerank_url == "http://localhost:8080/v1/rerank"
-        assert not r.rerank_enabled
-
-    def test_tei_rerank_uses_its_own_url_when_set(self):
-        r = build_retriever(
-            Settings(
-                embedding_backend="tei",
-                tei_base_url="http://localhost:8080/v1",
-                tei_rerank_base_url="http://localhost:8001",
-            )
-        )
-        assert r.rerank_url == "http://localhost:8001/rerank"
-
-    def test_openai_selects_model_and_key(self):
-        r = build_retriever(
-            Settings(
-                embedding_backend="openai",
-                openai_api_key="sk-test",
-                rerank_enabled=True,
-            )
-        )
-        assert isinstance(r, SemanticRetriever)
-        assert r.model == "openai/text-embedding-3-small"
-        assert r.api_key == "sk-test"
-        assert r.rerank_url == ""
-        assert r.rerank_model == "cohere/rerank-v3.5"
-
-
-def test_warranty_question_retrieves_the_warranty_document():
-    results = TfidfRetriever().retrieve("How long is the warranty on a refrigerator?", top_k=1)
-    assert results
-    assert results[0].doc_id == "warranty"
-
-
-def test_irrelevant_query_returns_nothing():
-    assert TfidfRetriever().retrieve("zzz qwerty asdf jkl", top_k=3, threshold=0.25) == []
-
-
-def test_nothing_below_the_threshold_is_returned():
-    assert TfidfRetriever().retrieve("the weather in the city", top_k=3, threshold=0.99) == []
-
-
-def test_results_are_sorted_by_score():
-    results = TfidfRetriever().retrieve("returns policy for unused products", top_k=3)
-    assert results
-    scores = [r.score for r in results]
-    assert scores == sorted(scores, reverse=True)
-
-
-def test_top_k_limits_the_results():
-    results = TfidfRetriever().retrieve("warranty and returns", top_k=2, threshold=0.0)
-    assert len(results) == 2
-
-
-def test_employee_complaint_retrieves_the_contact_channels():
-    results = TfidfRetriever().retrieve("where do I send a complaint about an employee?", top_k=2)
-    assert any(r.doc_id == "contact" for r in results)
+    def test_rerank_url_enables_the_reranker(self):
+        retriever = build_retriever(Settings(
+            embedding_model="BAAI/bge-m3", rerank_url="http://localhost:8001/rerank"
+        ))
+        assert retriever.reranker.url == "http://localhost:8001/rerank"

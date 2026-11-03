@@ -9,17 +9,17 @@ prompts:
 
 providers:
   - id: file://provider.py
-    label: mock-offline
-    config: {llm: mock, embedding_backend: offline, rerank: false}
+    label: mock-lexical
+    config: {llm: mock}
   - id: file://provider.py
-    label: real-offline
-    config: {llm: real, embedding_backend: offline, rerank: false}
+    label: real-lexical
+    config: {llm: real}
   - id: file://provider.py
     label: real-tei
-    config: {llm: real, embedding_backend: tei, rerank: false}
+    config: {llm: real, semantic: true}
   - id: file://provider.py
     label: real-tei-rerank
-    config: {llm: real, embedding_backend: tei, rerank: true}
+    config: {llm: real, semantic: true, rerank: true}
 
 defaultTest:
   assert:

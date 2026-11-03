@@ -1,20 +1,19 @@
 """Agent integration tests: guardrails, retrieval and tool calling.
 
-They use MockLLM (no network) and the offline TF-IDF retriever.
+They use MockLLM (no network) and the offline BM25 retriever.
 """
 
 from tiendahogar.agent import SupportAgent
 from tiendahogar.llm import MockLLM, ToolCall
-from tiendahogar.retrieval import TfidfRetriever
+from tiendahogar.retrieval import LexicalRetriever
 
 
 def build_agent(responses: dict[str, str] | None = None) -> SupportAgent:
     return SupportAgent(
         llm=MockLLM(responses=responses),
-        retriever=TfidfRetriever(),
+        retriever=LexicalRetriever(),
         max_turns=2,
         top_k=3,
-        relevance_threshold=0.15,
     )
 
 

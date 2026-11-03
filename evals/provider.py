@@ -4,8 +4,8 @@ The provider ``config`` selects the variant under test:
 
 - ``llm``: ``mock`` (deterministic, offline) or ``real`` (uses ``LLM_MODEL``
   and its API key from the environment).
-- ``embedding_backend``: ``offline`` (lexical) or a semantic backend (``tei``…).
-- ``rerank``: enable the cross-encoder reranker.
+- ``semantic``: use bge-m3 on the local TEI server instead of lexical BM25.
+- ``rerank``: also rerank with the local TEI cross-encoder.
 
 The output is a JSON object with ``answer``, ``action`` and ``sources`` so the
 assertions can grade the agent's decision, not just its wording.
@@ -21,7 +21,9 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-DEFAULT_TEI_URL = "http://localhost:8080/v1"
+TEI_EMBEDDINGS = {"embedding_model": "BAAI/bge-m3",
+                  "embedding_base_url": "http://localhost:8080/v1"}
+TEI_RERANK = {"rerank_url": "http://localhost:8001/rerank"}
 
 
 def build_agent(config: dict):
@@ -30,11 +32,12 @@ def build_agent(config: dict):
     from tiendahogar.llm import MockLLM, build_client
     from tiendahogar.retrieval import build_retriever
 
-    backend = config.get("embedding_backend", "offline")
-    overrides: dict = {"embedding_backend": backend, "rerank_enabled": config.get("rerank", False)}
+    overrides: dict = {}
+    if config.get("semantic"):
+        overrides |= TEI_EMBEDDINGS
+    if config.get("rerank"):
+        overrides |= TEI_RERANK
     settings = Settings(**overrides)
-    if backend == "tei" and not settings.tei_base_url:
-        settings = Settings(**overrides, tei_base_url=DEFAULT_TEI_URL)
 
     llm = MockLLM() if config.get("llm", "mock") == "mock" else build_client(settings)
     return SupportAgent(
@@ -42,7 +45,6 @@ def build_agent(config: dict):
         retriever=build_retriever(settings),
         max_turns=settings.max_turns,
         top_k=settings.top_k,
-        relevance_threshold=settings.retrieval_threshold,
         system_prompt=settings.system_prompt_text,
     )
 

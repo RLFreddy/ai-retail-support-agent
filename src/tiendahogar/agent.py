@@ -26,7 +26,7 @@ from tiendahogar.guardrails import (
 )
 from tiendahogar.knowledge import DOCUMENTS, SUPPORT_EMAIL, default_system_prompt
 from tiendahogar.llm import LLMClient, ToolCall
-from tiendahogar.retrieval import BaseRetriever
+from tiendahogar.retrieval import Retriever
 from tiendahogar.tools import TOOL_SCHEMA, get_order_status
 
 TOOL_NAME = "get_order_status"
@@ -58,10 +58,9 @@ class SupportAgent:
     def __init__(
         self,
         llm: LLMClient,
-        retriever: BaseRetriever,
+        retriever: Retriever,
         max_turns: int = 2,
         top_k: int = 3,
-        relevance_threshold: float = 0.15,
         system_prompt: str | None = None,
         tools: list[dict] | None = None,
     ):
@@ -69,7 +68,6 @@ class SupportAgent:
         self.retriever = retriever
         self.max_turns = max(1, max_turns)
         self.top_k = max(1, top_k)
-        self.relevance_threshold = relevance_threshold
         self.system_prompt = system_prompt or default_system_prompt()
         self.tools = tools or [TOOL_SCHEMA]
 
@@ -151,9 +149,7 @@ class SupportAgent:
 
     def _retrieve(self, user_message: str) -> tuple[list[int], str]:
         try:
-            results = self.retriever.retrieve(
-                user_message, top_k=self.top_k, threshold=self.relevance_threshold
-            )
+            results = self.retriever.retrieve(user_message, top_k=self.top_k)
         except Exception:  # noqa: BLE001 - no retrieval means no context
             results = []
         if not results:
@@ -216,6 +212,5 @@ def build_agent(settings=None) -> SupportAgent:
         retriever=build_retriever(settings),
         max_turns=settings.max_turns,
         top_k=settings.top_k,
-        relevance_threshold=settings.retrieval_threshold,
         system_prompt=settings.system_prompt_text,
     )

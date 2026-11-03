@@ -8,11 +8,8 @@ prompts:
 
 providers:
   - id: file://provider.py
-    label: mock-offline
-    config:
-      llm: mock
-      embedding_backend: offline
-      rerank: false
+    label: mock-lexical
+    config: {llm: mock}
 
 defaultTest:
   assert:

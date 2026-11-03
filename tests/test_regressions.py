@@ -18,7 +18,7 @@ from tiendahogar.agent import SupportAgent
 from tiendahogar.config import Settings
 from tiendahogar.guardrails import check_input, check_output
 from tiendahogar.llm import LiteLLMClient, LLMResult, MockLLM, ToolCall, build_client
-from tiendahogar.retrieval import TfidfRetriever, build_retriever
+from tiendahogar.retrieval import LexicalRetriever, build_retriever
 
 bug = pytest.mark.xfail(strict=True)
 
@@ -34,12 +34,12 @@ class ScriptedLLM:
 
 
 class FailingRetriever:
-    def retrieve(self, query, top_k=3, threshold=0.0):
+    def retrieve(self, query, top_k=3):
         raise ConnectionError("embedding server down")
 
 
 def make_agent(llm, retriever=None) -> SupportAgent:
-    return SupportAgent(llm=llm, retriever=retriever or TfidfRetriever())
+    return SupportAgent(llm=llm, retriever=retriever or LexicalRetriever())
 
 
 # --------------------------------------------------------------------------- #
@@ -150,20 +150,16 @@ def test_asking_for_an_invoice_is_not_a_billing_dispute():
 # --------------------------------------------------------------------------- #
 # Retrieval
 # --------------------------------------------------------------------------- #
-@bug
 def test_singular_matches_plural_document_terms():
-    results = TfidfRetriever().retrieve("return", top_k=1, threshold=0.0)
-    assert results[0].score > 0
+    results = LexicalRetriever().retrieve("return", top_k=1)
     assert results[0].doc_id == "returns"
 
 
-@bug
 def test_rerank_is_not_pointed_at_the_embeddings_server():
     retriever = build_retriever(Settings(
-        embedding_backend="tei", tei_base_url="http://localhost:8080/v1",
-        tei_rerank_base_url="", rerank_enabled=True,
+        embedding_model="BAAI/bge-m3", embedding_base_url="http://localhost:8080/v1",
     ))
-    assert "8080" not in getattr(retriever, "rerank_url", "")
+    assert retriever.reranker is None
 
 
 # --------------------------------------------------------------------------- #

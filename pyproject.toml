@@ -12,12 +12,16 @@ description = "Agente de soporte al cliente TiendaHogar: RAG + tool consultar_es
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "bm25s>=0.3.16",
     "fastmcp>=3.4.5",
+    "httpx>=0.28.1",
     "litellm==1.95.0",
+    "numpy>=2.5.1",
+    "openai>=2.53.0",
     "pydantic-settings>=2.14.2",
+    "pystemmer>=3.1.0",
     "python-dotenv==1.2.2",
     "rich==15.0.0",
-    "scikit-learn>=1.9.0",
 ]
 
 [project.optional-dependencies]

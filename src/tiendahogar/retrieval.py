@@ -1,26 +1,38 @@
-"""Retrieval layer of the TiendaHogar agent.
+"""Retrieval over the knowledge base.
 
-- ``TfidfRetriever``: default, deterministic and offline (scikit-learn TF-IDF
-  with an accent-folding tokenizer and English stop words).
-- ``SemanticRetriever``: embeddings through LiteLLM (local TEI with bge-m3,
-  OpenRouter, OpenAI or Gemini) with optional reranking.
+- ``LexicalRetriever`` (default): BM25 with an English stemmer. Offline and
+  deterministic.
+- ``SemanticRetriever``: embeddings from any OpenAI-compatible endpoint (a
+  local TEI server, OpenAI, OpenRouter, Gemini...) ranked by cosine
+  similarity, with an optional TEI cross-encoder reranker.
 
-When no document reaches the relevance threshold, retrieval returns nothing and
-the agent does not answer with invented information.
+Each retriever owns its relevance threshold, because BM25 and cosine scores
+live on different scales. When no document reaches it, retrieval returns
+nothing and the agent has no context to answer from.
 """
 
 from __future__ import annotations
 
-import re
-import unicodedata
 from dataclasses import dataclass
-from operator import itemgetter
 from typing import Protocol
 
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
+import bm25s
+import httpx
+import numpy as np
+import Stemmer
+from bm25s.stopwords import STOPWORDS_EN
+from openai import OpenAI
 
 from tiendahogar.knowledge import DOCUMENTS, Document
+
+#: bm25s' English list plus the question words customers type, which carry no
+#: topic ("how long does a refund take" is about refunds, not about "how").
+STOP_WORDS = sorted(
+    set(STOPWORDS_EN)
+    | {"can", "could", "did", "do", "does", "get", "has", "have", "how", "i", "long",
+       "make", "many", "me", "much", "my", "take", "want", "what", "when", "where",
+       "which", "who", "why", "you", "your"}
+)
 
 
 @dataclass(frozen=True)
@@ -34,196 +46,121 @@ class RetrievalResult:
     def doc_id(self) -> str:
         return self.document.id
 
-    @property
-    def title(self) -> str:
-        return self.document.title
+
+class Retriever(Protocol):
+    def retrieve(self, query: str, top_k: int = 3) -> list[RetrievalResult]: ...
 
 
-class BaseRetriever(Protocol):
-    """Common retriever interface."""
-
-    def retrieve(self, query: str, top_k: int = 3, threshold: float = 0.15) -> list[RetrievalResult]:
-        ...
-
-
-def _tokenize(text: str) -> list[str]:
-    """Lowercase, fold accents (NFKD) and split into alphanumeric tokens."""
-    text = unicodedata.normalize("NFKD", text.lower())
-    text = "".join(ch for ch in text if unicodedata.category(ch) != "Mn")
-    return re.findall(r"[a-z0-9]+", text)
+def _top(
+    documents: list[Document], scores: np.ndarray, top_k: int, threshold: float
+) -> list[RetrievalResult]:
+    order = np.argsort(-scores, kind="stable")
+    return [
+        RetrievalResult(documents[i], float(scores[i]))
+        for i in order[:top_k]
+        if scores[i] >= threshold
+    ]
 
 
-#: English function words (tokenized form). Content words never go here.
-STOP_WORDS: frozenset[str] = frozenset({
-    "a", "an", "the", "and", "or", "but", "if", "of", "to", "in", "on", "at",
-    "by", "for", "with", "from", "about", "as", "into", "is", "are", "was",
-    "be", "it", "its", "this", "that", "my", "me", "i", "you", "your", "we",
-    "our", "do", "does", "can", "how", "what", "when", "there",
-})
+class LexicalRetriever:
+    """BM25 (bm25s) over stemmed English tokens."""
 
-
-class TfidfRetriever:
-    """Deterministic TF-IDF retriever (scikit-learn), no network.
-
-    The default threshold (0.15) separates relevant queries from irrelevant
-    ones on this corpus; the tests and evals check it.
-    """
-
-    def __init__(self, documents: list[Document] = DOCUMENTS):
+    def __init__(self, documents: list[Document] = DOCUMENTS, threshold: float = 0.5):
         self.documents = list(documents)
-        self._vectorizer = TfidfVectorizer(
-            tokenizer=_tokenize,
-            token_pattern=None,
-            lowercase=False,
-            norm="l2",
-            stop_words=list(STOP_WORDS),
-        )
-        self._tfidf = self._vectorizer.fit_transform(
-            [d.content for d in self.documents]
-        )
+        self.threshold = threshold
+        self._stemmer = Stemmer.Stemmer("english")
+        self._index = bm25s.BM25()
+        self._index.index(self._tokenize([d.content for d in self.documents]),
+                          show_progress=False)
 
-    def retrieve(self, query: str, top_k: int = 3, threshold: float = 0.15) -> list[RetrievalResult]:
-        if not query.strip():
+    def _tokenize(self, texts: list[str]) -> list[list[str]]:
+        return bm25s.tokenize(texts, stopwords=STOP_WORDS, stemmer=self._stemmer,
+                              return_ids=False, show_progress=False)
+
+    def retrieve(self, query: str, top_k: int = 3) -> list[RetrievalResult]:
+        tokens = self._tokenize([query])[0]
+        if not tokens:
             return []
-        query_vec = self._vectorizer.transform([query])
-        sims = cosine_similarity(query_vec, self._tfidf)[0]
-        scored = [(i, float(s)) for i, s in enumerate(sims) if s >= threshold]
-        scored.sort(key=itemgetter(1), reverse=True)
-        top = scored[:top_k]
-        return [RetrievalResult(document=self.documents[i], score=score) for i, score in top]
+        return _top(self.documents, self._index.get_scores(tokens), top_k, self.threshold)
+
+
+class TeiReranker:
+    """Cross-encoder served by Hugging Face TEI (``POST /rerank``)."""
+
+    def __init__(self, url: str, model: str = "", timeout: float = 30.0):
+        self.url = url
+        self.model = model
+        self.timeout = timeout
+
+    def rerank(self, query: str, results: list[RetrievalResult]) -> list[RetrievalResult]:
+        payload: dict = {"query": query, "texts": [r.document.content for r in results]}
+        if self.model:
+            payload["model"] = self.model
+        response = httpx.post(self.url, json=payload, timeout=self.timeout)
+        response.raise_for_status()
+        # TEI returns [{"index": i, "score": s}, ...] sorted by relevance.
+        return [
+            RetrievalResult(results[item["index"]].document, float(item["score"]))
+            for item in response.json()
+        ]
 
 
 class SemanticRetriever:
-    """Embedding retriever through LiteLLM.
-
-    Backends: ``tei`` (local TEI, OpenAI-compatible, bge-m3), ``openrouter``,
-    ``openai`` and ``gemini``. With ``rerank_enabled`` the candidates go
-    through a cross-encoder: TEI ``/rerank`` over HTTP when ``rerank_url`` is
-    set, otherwise ``litellm.rerank`` with ``rerank_model``.
-    """
+    """Cosine similarity over embeddings from an OpenAI-compatible endpoint."""
 
     def __init__(
         self,
+        client: OpenAI,
+        model: str,
         documents: list[Document] = DOCUMENTS,
-        backend: str = "tei",
-        model: str = "",
-        api_base: str = "",
-        api_key: str = "",
-        rerank_enabled: bool = False,
-        rerank_url: str = "",
-        rerank_model: str = "",
+        threshold: float = 0.56,
+        reranker: TeiReranker | None = None,
     ):
-        self.documents = list(documents)
-        self.backend = backend
+        self.client = client
         self.model = model
-        self.api_base = api_base
-        self.api_key = api_key
-        self.rerank_enabled = rerank_enabled
-        self.rerank_url = rerank_url
-        self.rerank_model = rerank_model
-        self._doc_embeddings: list[list[float]] | None = None
+        self.documents = list(documents)
+        self.threshold = threshold
+        self.reranker = reranker
+        self._doc_vectors: np.ndarray | None = None
 
-    def _embed(self, texts: list[str]) -> list[list[float]]:
-        import litellm
+    def _embed(self, texts: list[str]) -> np.ndarray:
+        response = self.client.embeddings.create(model=self.model, input=texts)
+        vectors = np.array([item.embedding for item in response.data], dtype=float)
+        return vectors / np.linalg.norm(vectors, axis=1, keepdims=True)
 
-        kwargs: dict = {"model": self.model, "input": texts, "api_key": self.api_key or "dummy"}
-        if self.api_base:
-            kwargs["api_base"] = self.api_base
-        resp = litellm.embedding(**kwargs)
-        return [item["embedding"] for item in resp.data]
-
-    def retrieve(self, query: str, top_k: int = 3, threshold: float = 0.56) -> list[RetrievalResult]:
+    def retrieve(self, query: str, top_k: int = 3) -> list[RetrievalResult]:
         if not query.strip():
             return []
-        if self._doc_embeddings is None:
-            self._doc_embeddings = self._embed([d.content for d in self.documents])
-        q = self._embed([query])[0]
-        sims = cosine_similarity([q], self._doc_embeddings)[0]
-        scored = [(i, s) for i, s in enumerate(sims) if s >= threshold]
-        scored.sort(key=itemgetter(1), reverse=True)
-        candidates = scored[: top_k * 2]
-
-        if self.rerank_enabled and (self.rerank_url or self.rerank_model) and len(candidates) > 1:
-            if self.rerank_url:
-                candidates = self._rerank_tei(query, candidates, top_k * 2)
-            else:
-                candidates = self._rerank_litellm(query, candidates, top_k * 2)
-
-        top = candidates[:top_k]
-        return [RetrievalResult(document=self.documents[i], score=score) for i, score in top]
-
-    def _rerank_tei(self, query: str, scored: list[tuple[int, float]], top_n: int) -> list[tuple[int, float]]:
-        """Local TEI cross-encoder over HTTP ``/rerank``.
-
-        TEI expects ``texts`` and returns ``[{"index", "score"}, ...]`` already
-        sorted by relevance; that order is kept.
-        """
-        import httpx
-
-        docs = [self.documents[i].content for i, _ in scored]
-        payload = {"query": query, "texts": docs, "top_n": top_n}
-        if self.rerank_model:
-            payload["model"] = self.rerank_model
-        resp = httpx.post(self.rerank_url, json=payload, timeout=30)
-        resp.raise_for_status()
-        out: list[tuple[int, float]] = []
-        for item in resp.json():
-            i = int(item["index"])
-            out.append((scored[i][0], float(item.get("score", scored[i][1]))))
-        return out
-
-    def _rerank_litellm(self, query: str, scored: list[tuple[int, float]], top_n: int) -> list[tuple[int, float]]:
-        """Cloud reranker through ``litellm.rerank``."""
-        import litellm
-
-        docs = [self.documents[i].content for i, _ in scored]
-        resp = litellm.rerank(
-            model=self.rerank_model,
-            query=query,
-            documents=docs,
-            top_n=top_n,
-        )
-        out: list[tuple[int, float]] = []
-        for r in (resp.results or []):
-            item = r if isinstance(r, dict) else r.model_dump()
-            idx = scored[item["index"]][0]
-            out.append((idx, float(item.get("relevance_score", scored[item["index"]][1]))))
-        return out
+        if self._doc_vectors is None:
+            self._doc_vectors = self._embed([d.content for d in self.documents])
+        scores = self._doc_vectors @ self._embed([query])[0]
+        # Over-fetch so the reranker has candidates to reorder.
+        fetch = top_k * 2 if self.reranker else top_k
+        results = _top(self.documents, scores, fetch, self.threshold)
+        if self.reranker and len(results) > 1:
+            results = self.reranker.rerank(query, results)
+        return results[:top_k]
 
 
-def build_retriever(settings=None) -> BaseRetriever:
-    """Build the retriever for the configured embedding backend."""
-    from tiendahogar.config import EMBEDDING_KEY_ENV, get_settings
+def build_retriever(settings=None) -> Retriever:
+    """Semantic retrieval when ``EMBEDDING_MODEL`` is set, lexical otherwise."""
+    from tiendahogar.config import get_settings
 
     settings = settings or get_settings()
-    backend = settings.embedding_backend
-    if backend == "offline":
-        return TfidfRetriever()
+    if not settings.embedding_model:
+        return LexicalRetriever(threshold=settings.lexical_threshold)
 
-    if backend == "tei":
-        model, api_key = settings.tei_embed_model, ""
-        api_base = settings.tei_base_url
-        base = settings.tei_rerank_base_url or settings.tei_base_url
-        rerank_url = f"{base.rstrip('/')}/rerank" if base else ""
-        rerank_model = settings.tei_rerank_model if base else ""
-    else:
-        model = {
-            "openrouter": settings.openrouter_embed_model,
-            "openai": settings.openai_embed_model,
-            "gemini": settings.gemini_embed_model,
-        }[backend]
-        api_key = settings.api_keys.get(EMBEDDING_KEY_ENV[backend], "")
-        api_base = ""
-        rerank_url = ""
-        rerank_model = settings.rerank_model
-
+    client = OpenAI(
+        base_url=settings.embedding_base_url or None,
+        # Local servers such as TEI need no key, but the client requires one.
+        api_key=settings.embedding_api_key.get_secret_value() or "unused",
+    )
+    reranker = (
+        TeiReranker(settings.rerank_url, settings.rerank_model) if settings.rerank_url else None
+    )
     return SemanticRetriever(
-        documents=DOCUMENTS,
-        backend=backend,
-        model=model,
-        api_base=api_base,
-        api_key=api_key,
-        rerank_enabled=settings.rerank_enabled,
-        rerank_url=rerank_url,
-        rerank_model=rerank_model,
+        client,
+        settings.embedding_model,
+        threshold=settings.semantic_threshold,
+        reranker=reranker,
     )

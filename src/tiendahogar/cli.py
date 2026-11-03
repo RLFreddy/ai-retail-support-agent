@@ -4,6 +4,7 @@ Commands:
 
 - ``tiendahogar chat``: interactive chat in the terminal (the default).
 - ``tiendahogar ask "<question>"``: answer one question and exit.
+- ``--lang es`` (on ``chat`` and ``ask``): answer in Spanish.
 - ``tiendahogar serve``: HTTP API and web chat UI (needs the ``web`` extra).
 - ``tiendahogar mcp``: run the MCP server over stdio.
 - ``tiendahogar --version``: print the version and the active configuration.
@@ -23,7 +24,7 @@ from rich.prompt import Prompt
 from tiendahogar import __version__
 from tiendahogar.agent import SupportAgent, build_agent
 from tiendahogar.config import Settings, get_settings
-from tiendahogar.domain import Action, AgentReply
+from tiendahogar.domain import Action, AgentReply, Language
 from tiendahogar.telemetry import configure_logging, configure_tracing
 
 console = Console()
@@ -60,9 +61,9 @@ def print_response(resp: AgentReply) -> None:
         )
 
 
-def chat() -> int:
+def chat(language: Language = Language.EN) -> int:
     settings = get_settings()
-    agent = build_agent(settings)
+    agent = build_agent(settings, language)
     console.print(
         Panel(
             "[bold]TiendaHogar support agent[/bold]\n"
@@ -83,9 +84,9 @@ def chat() -> int:
         print_response(agent.run(message))
 
 
-def ask(question: str) -> int:
+def ask(question: str, language: Language = Language.EN) -> int:
     settings = get_settings()
-    agent = build_agent(settings)
+    agent = build_agent(settings, language)
     console.print(f"[dim]{escape(describe_settings(settings, agent))}[/dim]")
     print_response(agent.run(question))
     return 0
@@ -124,9 +125,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="tiendahogar", description=__doc__.splitlines()[0])
     parser.add_argument("--version", action="store_true", help="print version and exit")
     commands = parser.add_subparsers(dest="command")
-    commands.add_parser("chat", help="interactive chat (default)")
+    chat_parser = commands.add_parser("chat", help="interactive chat (default)")
     ask_parser = commands.add_parser("ask", help="answer one question and exit")
     ask_parser.add_argument("question")
+    for sub in (chat_parser, ask_parser):
+        sub.add_argument(
+            "--lang",
+            type=Language,
+            choices=list(Language),
+            default=Language.EN,
+            help="language of the documents and replies (default: en)",
+        )
     serve_parser = commands.add_parser("serve", help="HTTP API and web chat UI")
     serve_parser.add_argument("--host", default="127.0.0.1")
     serve_parser.add_argument("--port", type=int, default=7860)
@@ -147,12 +156,12 @@ def main(argv: list[str] | None = None) -> int:
         print(describe_settings(settings, build_agent(settings)))
         return 0
     if args.command == "ask":
-        return ask(args.question)
+        return ask(args.question, args.lang)
     if args.command == "serve":
         return serve(args.host, args.port, with_ui=not args.no_ui)
     if args.command == "mcp":
         return serve_mcp()
-    return chat()
+    return chat(getattr(args, "lang", Language.EN))
 
 
 if __name__ == "__main__":

@@ -2,24 +2,28 @@
 
 Needs the ``web`` extra. Endpoints:
 
-- ``POST /chat``: ``{"message": "..."}`` → ``{"answer", "action", "sources"}``.
+- ``POST /chat``: ``{"message": "...", "language": "en" | "es"}`` →
+  ``{"answer", "action", "sources"}``. The language defaults to English.
 - ``GET /health``: liveness plus the active model.
 - ``/``: the Gradio chat UI, when mounted.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
 
 from tiendahogar import __version__
-from tiendahogar.agent import SupportAgent, build_agent
+from tiendahogar.agent import SupportAgent, build_agents
 from tiendahogar.config import get_settings
-from tiendahogar.domain import Action
+from tiendahogar.domain import Action, Language
 
 
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=2000)
+    language: Language = Language.EN
 
 
 class ChatResponse(BaseModel):
@@ -34,11 +38,13 @@ class Health(BaseModel):
     model: str
 
 
-def create_app(agent: SupportAgent | None = None, *, with_ui: bool = True) -> FastAPI:
-    """Build the app around one agent, shared by every request."""
-    if agent is None:
-        agent = build_agent()
-    model = "mock" if agent.is_mock else get_settings().llm_model
+def create_app(
+    agents: Mapping[Language, SupportAgent] | None = None, *, with_ui: bool = True
+) -> FastAPI:
+    """Build the app around one agent per language, shared by every request."""
+    if agents is None:
+        agents = build_agents()
+    model = "mock" if agents[Language.EN].is_mock else get_settings().llm_model
     app = FastAPI(title="TiendaHogar support agent", version=__version__)
 
     @app.get("/health")
@@ -49,7 +55,7 @@ def create_app(agent: SupportAgent | None = None, *, with_ui: bool = True) -> Fa
     # agent call never stalls the event loop.
     @app.post("/chat")
     def chat(request: ChatRequest) -> ChatResponse:
-        reply = agent.run(request.message)
+        reply = agents[request.language].run(request.message)
         return ChatResponse(answer=reply.answer, action=reply.action, sources=reply.sources)
 
     if with_ui:
@@ -57,5 +63,5 @@ def create_app(agent: SupportAgent | None = None, *, with_ui: bool = True) -> Fa
 
         from tiendahogar.ui import THEME, build_ui
 
-        app = gr.mount_gradio_app(app, build_ui(agent), path="/", theme=THEME)
+        app = gr.mount_gradio_app(app, build_ui(agents), path="/", theme=THEME)
     return app

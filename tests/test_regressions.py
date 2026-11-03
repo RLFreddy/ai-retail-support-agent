@@ -163,6 +163,6 @@ def test_answer_text_is_not_parsed_as_rich_markup(monkeypatch, capsys):
         def run(self, query):
             return AgentReply(answer="Use the code [/red] at checkout")
 
-    monkeypatch.setattr(cli, "build_agent", lambda settings: FakeAgent())
+    monkeypatch.setattr(cli, "build_agent", lambda settings, language: FakeAgent())
     cli.ask("hello")
     assert "[/red]" in capsys.readouterr().out

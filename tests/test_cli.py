@@ -15,9 +15,19 @@ def test_ask_answers_in_mock_mode(capsys):
     assert "warranty" in out
 
 
+def test_ask_answers_in_spanish(capsys):
+    assert cli.main(["ask", "--lang", "es", "¿Cuánto dura la garantía?"]) == 0
+    assert "(Fuente: Política de" in capsys.readouterr().out
+
+
+def test_unknown_language_is_rejected():
+    with pytest.raises(SystemExit):
+        cli.main(["ask", "--lang", "fr", "Bonjour"])
+
+
 def test_no_command_starts_the_chat(monkeypatch):
     calls = []
-    monkeypatch.setattr(cli, "chat", lambda: calls.append("chat") or 0)
+    monkeypatch.setattr(cli, "chat", lambda language: calls.append("chat") or 0)
     assert cli.main([]) == 0
     assert calls == ["chat"]
 

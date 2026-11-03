@@ -14,6 +14,16 @@ approves money it is not allowed to. It speaks **English and Spanish**: each
 language has its own documents, retrieval analyzer, guardrail rules and
 replies.
 
+- **Measured against a real model:** 111 of 114 eval runs pass with Groq
+  `gpt-oss-20b` (English, Spanish and follow-up questions, three runs each).
+  [Results](#results)
+- **Policy in code, not in the prompt:** guardrails refer, escalate or block
+  before the model runs, so refunds over $500 always reach a human.
+- **No invented deadlines:** every deadline in an answer must appear in the
+  documents or the order data, or the customer is referred to a human.
+- **Cheap and quick:** about $0.08 per 1,000 messages; 41% of the eval messages
+  are settled by a guardrail in milliseconds, without calling the model.
+
 <p align="center">
   <img src="assets/demo.gif"
        alt="Terminal chat: a cited warranty answer and an escalated refund in English, then an order lookup and a blocked prompt injection in Spanish"

@@ -4,6 +4,11 @@ The Space builds the repository's `Dockerfile`, whose default command serves
 the API and the web UI on port 7860. Only the Space front matter differs, so
 the Space's `README.md` is `deploy/huggingface/README.md`.
 
+Docker Spaces need a paid Hugging Face plan (PRO for personal accounts); the
+free CPU hardware is no longer available to new Docker or Gradio Spaces on
+free accounts. Any host that runs a Docker image on port 7860 works the same
+way.
+
 1. Create a Space with the **Docker** SDK (blank template).
 2. In *Settings → Variables and secrets*, add the secret `GROQ_API_KEY`
    (optional: without it the Space runs the offline mock model).

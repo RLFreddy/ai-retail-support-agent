@@ -7,6 +7,8 @@ The provider ``config`` selects the variant under test:
 - ``semantic``: use bge-m3 on the local TEI server instead of lexical BM25.
 - ``rerank``: also rerank with the local TEI cross-encoder.
 
+The test variable ``language`` (``en`` by default) picks the agent's language.
+
 The output is a JSON object with ``answer``, ``action`` and ``sources`` so the
 assertions can grade the agent's decision, not just its wording. Token usage
 is reported to promptfoo, which adds it (and the latency) to the results.
@@ -18,6 +20,7 @@ import json
 
 from tiendahogar.agent import build_agent as build
 from tiendahogar.config import Settings
+from tiendahogar.domain import Language
 
 TEI_EMBEDDINGS = {
     "embedding_model": "BAAI/bge-m3",
@@ -26,7 +29,7 @@ TEI_EMBEDDINGS = {
 TEI_RERANK = {"rerank_url": "http://localhost:8001/rerank"}
 
 
-def build_agent(config: dict):
+def build_agent(config: dict, language: Language = Language.EN):
     overrides: dict = {}
     if config.get("semantic"):
         overrides |= TEI_EMBEDDINGS
@@ -34,12 +37,13 @@ def build_agent(config: dict):
         overrides |= TEI_RERANK
     if config.get("llm", "mock") == "mock":
         overrides["llm_model"] = "mock"
-    return build(Settings(**overrides))
+    return build(Settings(**overrides), language)
 
 
 def call_api(prompt: str, options: dict, context: dict) -> dict:
     try:
-        response = build_agent(options.get("config", {})).run(prompt)
+        language = Language(context.get("vars", {}).get("language", "en"))
+        response = build_agent(options.get("config", {}), language).run(prompt)
     except Exception as exc:  # noqa: BLE001 - report infra failures as errors, not fails
         return {"error": f"{type(exc).__name__}: {exc}"}
     return {

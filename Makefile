@@ -1,44 +1,67 @@
 ENV_FILE := $(if $(wildcard .env),--env-file=.env,)
-
-.PHONY: build run repl query eval bench version shell test lint mcp-smoke clean
-
-build: ## Construir la imagen: docker build -t tiendahogar .
-	docker build -t tiendahogar .
-
-run: ## Demo por defecto (modo mock, sin red)
-	docker run --rm $(ENV_FILE) tiendahogar
-
-repl: ## Interactive chat (needs a TTY)
-	docker run --rm -it $(ENV_FILE) tiendahogar tiendahogar chat
-
-query: ## Respuesta a una consulta: make query Q="¿Dónde está mi pedido ORD-1002?"
-	docker run --rm $(ENV_FILE) tiendahogar tiendahogar ask "$$Q"
-
+IMAGE := tiendahogar
 PROMPTFOO := PROMPTFOO_PYTHON=$(CURDIR)/.venv/bin/python PROMPTFOO_DISABLE_TELEMETRY=1 \
 	npx -y promptfoo@0.124.1
 
-eval: ## Deterministic evals on the host (mock LLM, offline retrieval; needs uv + Node)
-	uv sync --quiet
+.DEFAULT_GOAL := help
+.PHONY: help install test lint format typecheck eval bench mcp-smoke check \
+	build run chat ask version shell clean
+
+help: ## List the targets
+	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-10s %s\n", $$1, $$2}'
+
+# --- Development (host, needs uv; evals also need Node) ---------------------
+
+install: ## Install the dependencies and the git hooks
+	uv sync --locked
+	uv run pre-commit install
+
+test: ## Run the test suite (hermetic: no network, no keys)
+	uv run pytest
+
+lint: ## Check lint and formatting
+	uv run ruff check .
+	uv run ruff format --check .
+
+format: ## Fix lint and formatting
+	uv run ruff check --fix .
+	uv run ruff format .
+
+typecheck: ## Strict type check
+	uv run mypy
+
+eval: ## Deterministic evals: mock model, lexical retrieval (fails below 100%)
+	uv sync --locked --quiet
 	$(PROMPTFOO) eval -c evals/promptfooconfig.yaml --no-cache
 
-bench: ## Variant matrix with the real model (needs the API key and the TEI containers)
-	uv sync --quiet
+bench: ## Real-model variant matrix (needs .env with the API key and the TEI containers)
+	uv sync --locked --quiet
 	$(PROMPTFOO) eval -c evals/promptfooconfig.bench.yaml --no-cache --env-file .env
 
-version: ## Versión y variante del agente
-	docker run --rm tiendahogar tiendahogar --version
+mcp-smoke: ## Start the MCP server and call its tool over stdio
+	uv run python scripts/mcp_smoke_test.py
 
-shell: ## Shell interactivo dentro del contenedor
-	docker run --rm -it $(ENV_FILE) tiendahogar sh
+check: lint typecheck test eval ## Everything CI runs
 
-test: ## Tests dentro del contenedor (pytest)
-	docker run --rm tiendahogar pytest
+# --- Docker -------------------------------------------------------------------
 
-lint: ## Lint dentro del contenedor (ruff)
-	docker run --rm tiendahogar ruff check src tests scripts
+build: ## Build the runtime image
+	docker build -t $(IMAGE) .
 
-mcp-smoke: ## Probar el servidor MCP (exit 0/1)
-	docker run --rm tiendahogar python scripts/mcp_smoke_test.py
+run: ## Answer the default demo question
+	docker run --rm $(ENV_FILE) $(IMAGE)
 
-clean: ## Eliminar la imagen
-	docker rmi tiendahogar
+chat: ## Interactive chat (needs a TTY)
+	docker run --rm -it $(ENV_FILE) $(IMAGE) chat
+
+ask: ## Answer one question: make ask Q="Where is my order ORD-1002?"
+	docker run --rm $(ENV_FILE) $(IMAGE) ask "$(Q)"
+
+version: ## Print the version and the active configuration
+	docker run --rm $(ENV_FILE) $(IMAGE) --version
+
+shell: ## Shell inside the image
+	docker run --rm -it $(ENV_FILE) --entrypoint sh $(IMAGE)
+
+clean: ## Remove the image
+	docker rmi $(IMAGE)

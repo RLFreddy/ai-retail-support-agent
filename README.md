@@ -127,9 +127,11 @@ flowchart TD
   in a tool result. The model gets one retry with the reason; after that the
   customer is referred to a human instead of receiving an unsupported answer.
 - **Retrieval** is lexical BM25 by default (no model, no network). Setting
-  `EMBEDDING_MODEL` switches to embeddings through any OpenAI-compatible
-  endpoint (e.g. a local [TEI](https://github.com/huggingface/text-embeddings-inference)
-  server with bge-m3), and `RERANK_URL` adds a cross-encoder.
+  `EMBEDDING_MODEL` switches to embeddings through Pydantic AI's `Embedder`:
+  any of its providers by name (`openai:`, `cohere:`, `ollama:`, …) or an
+  OpenAI-compatible server such as a local
+  [TEI](https://github.com/huggingface/text-embeddings-inference) with bge-m3.
+  `RERANK_URL` adds a cross-encoder.
 - **Memory** is the conversation the client sends: the web chat, the CLI chat
   and API callers pass the earlier turns, and the server keeps no session.
   The last six turns reach the model, minus any message a guardrail would
@@ -205,7 +207,7 @@ Settings come from environment variables or `.env` (see
 |---|---|---|
 | `LLM_MODEL` | `groq:openai/gpt-oss-20b` | Pydantic AI model; `mock` for the offline model |
 | `GROQ_API_KEY` | – | Provider key; without it the agent falls back to the mock |
-| `EMBEDDING_MODEL`, `EMBEDDING_BASE_URL` | – | Turn on semantic retrieval |
+| `EMBEDDING_MODEL`, `EMBEDDING_BASE_URL` | – | Turn on semantic retrieval: a Pydantic AI embedder name, or a model on an OpenAI-compatible server |
 | `RERANK_URL`, `RERANK_MODEL` | – | Turn on cross-encoder reranking |
 | `TOP_K`, `LEXICAL_THRESHOLD`, `SEMANTIC_THRESHOLD` | `3`, `0.5`, `0.56` | Retrieval cut-offs |
 | `SYSTEM_PROMPT_FILE` | – | Replace the default system prompt |

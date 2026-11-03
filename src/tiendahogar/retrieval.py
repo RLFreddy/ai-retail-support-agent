@@ -1,10 +1,12 @@
 """Retrieval over the knowledge base.
 
-- ``LexicalRetriever`` (default): BM25 with an English stemmer. Offline and
-  deterministic.
-- ``SemanticRetriever``: embeddings from any OpenAI-compatible endpoint (a
-  local TEI server, OpenAI, OpenRouter, Gemini...) ranked by cosine
-  similarity, with an optional TEI cross-encoder reranker.
+- ``LexicalRetriever`` (default): BM25 with the stemmer and stop words of the
+  documents' language. Offline and deterministic.
+- ``SemanticRetriever``: embeddings from a Pydantic AI ``Embedder`` ranked by
+  cosine similarity, with an optional TEI cross-encoder reranker. The
+  embedder is any Pydantic AI embedding model name (``openai:...``,
+  ``cohere:...``, ``ollama:...``, ``sentence-transformers:...``) or an
+  OpenAI-compatible endpoint such as a local TEI server.
 
 Each retriever owns its relevance threshold, because BM25 and cosine scores
 live on different scales. When no document reaches it, retrieval returns
@@ -14,6 +16,7 @@ nothing and the agent has no context to answer from.
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -23,7 +26,9 @@ import numpy as np
 import numpy.typing as npt
 import Stemmer
 from bm25s.stopwords import STOPWORDS_EN, STOPWORDS_SPANISH
-from openai import OpenAI
+from pydantic_ai import Embedder
+from pydantic_ai.embeddings.openai import OpenAIEmbeddingModel
+from pydantic_ai.providers.openai import OpenAIProvider
 
 from tiendahogar.config import Settings, get_settings
 from tiendahogar.domain import Language
@@ -200,22 +205,20 @@ class SemanticRetriever:
 
     def __init__(
         self,
-        client: OpenAI,
-        model: str,
+        embedder: Embedder,
         documents: list[Document] | None = None,
         threshold: float = 0.56,
         reranker: TeiReranker | None = None,
     ):
-        self.client = client
-        self.model = model
+        self.embedder = embedder
         self.documents = list(KNOWLEDGE[Language.EN] if documents is None else documents)
         self.threshold = threshold
         self.reranker = reranker
         self._doc_vectors: Vector | None = None
 
-    def _embed(self, texts: list[str]) -> Vector:
-        response = self.client.embeddings.create(model=self.model, input=texts)
-        vectors = np.array([item.embedding for item in response.data], dtype=np.float64)
+    @staticmethod
+    def _normalized(embeddings: Sequence[Sequence[float]]) -> Vector:
+        vectors = np.array(embeddings, dtype=np.float64)
         normalized: Vector = vectors / np.linalg.norm(vectors, axis=1, keepdims=True)
         return normalized
 
@@ -223,14 +226,32 @@ class SemanticRetriever:
         if not query.strip():
             return []
         if self._doc_vectors is None:
-            self._doc_vectors = self._embed([d.content for d in self.documents])
-        scores = self._doc_vectors @ self._embed([query])[0]
+            texts = [d.content for d in self.documents]
+            self._doc_vectors = self._normalized(
+                self.embedder.embed_documents_sync(texts).embeddings
+            )
+        query_vector = self._normalized(self.embedder.embed_query_sync(query).embeddings)[0]
+        scores = self._doc_vectors @ query_vector
         # Over-fetch so the reranker has candidates to reorder.
         fetch = top_k * 2 if self.reranker else top_k
         results = _top(self.documents, scores, fetch, self.threshold)
         if self.reranker and len(results) > 1:
             results = self.reranker.rerank(query, results)
         return results[:top_k]
+
+
+def build_embedder(settings: Settings) -> Embedder:
+    """``EMBEDDING_MODEL`` with ``EMBEDDING_BASE_URL``: an OpenAI-compatible
+    server such as TEI. Without a base URL: a Pydantic AI embedding model name."""
+    if not settings.embedding_base_url:
+        # Resolve the name now, so a typo or a missing key fails at startup.
+        return Embedder(settings.embedding_model, defer_model_check=False)
+    provider = OpenAIProvider(
+        base_url=settings.embedding_base_url,
+        # Local servers such as TEI need no key, but the client requires one.
+        api_key=settings.embedding_api_key.get_secret_value() or "unused",
+    )
+    return Embedder(OpenAIEmbeddingModel(settings.embedding_model, provider=provider))
 
 
 def build_retriever(
@@ -242,17 +263,11 @@ def build_retriever(
     if not settings.embedding_model:
         return LexicalRetriever(threshold=settings.lexical_threshold, language=language)
 
-    client = OpenAI(
-        base_url=settings.embedding_base_url or None,
-        # Local servers such as TEI need no key, but the client requires one.
-        api_key=settings.embedding_api_key.get_secret_value() or "unused",
-    )
     reranker = (
         TeiReranker(settings.rerank_url, settings.rerank_model) if settings.rerank_url else None
     )
     return SemanticRetriever(
-        client,
-        settings.embedding_model,
+        build_embedder(settings),
         documents=KNOWLEDGE[language],
         threshold=settings.semantic_threshold,
         reranker=reranker,

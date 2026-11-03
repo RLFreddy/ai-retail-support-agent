@@ -25,8 +25,9 @@ class Settings(BaseSettings):
     #: Plain-text file that replaces the default system prompt (every language).
     system_prompt_file: FilePath | None = None
 
-    #: Empty → lexical BM25 retrieval. Set it (with EMBEDDING_BASE_URL for a
-    #: local TEI server) to use semantic retrieval.
+    #: Empty → lexical BM25 retrieval. A Pydantic AI embedding model name
+    #: (e.g. openai:text-embedding-3-small, ollama:nomic-embed-text), or the
+    #: model served at EMBEDDING_BASE_URL (e.g. BAAI/bge-m3 on a local TEI).
     embedding_model: str = ""
     embedding_base_url: str = ""
     embedding_api_key: SecretStr = SecretStr("")

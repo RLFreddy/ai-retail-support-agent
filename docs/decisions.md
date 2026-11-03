@@ -60,10 +60,12 @@ latency and a second model per answer.
 
 ## Retrieval: BM25 by default, embeddings optional
 
-**Choice.** Lexical BM25 (`bm25s` with an English stemmer and stop words) over
-the five documents, one document per chunk, with a score threshold. Setting
-`EMBEDDING_MODEL` switches to embeddings through any OpenAI-compatible
-endpoint; `RERANK_URL` adds a cross-encoder (TEI `/rerank`).
+**Choice.** Lexical BM25 (`bm25s` with the stemmer and stop words of each
+language) over the five documents, one document per chunk, with a score
+threshold. Setting `EMBEDDING_MODEL` switches to embeddings through Pydantic
+AI's `Embedder`, the same library as the chat model, so any of its embedding
+providers works by name and an OpenAI-compatible server (TEI) by URL;
+`RERANK_URL` adds a cross-encoder (TEI `/rerank`).
 
 **Why.** Five short documents, one idea each: BM25 retrieves them correctly
 offline, in microseconds, with no model to host. Splitting them would separate,

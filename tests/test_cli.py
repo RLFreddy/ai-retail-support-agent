@@ -66,7 +66,11 @@ def test_describe_settings_without_key_shows_the_mock():
 
 def test_describe_settings_with_key_shows_the_model(monkeypatch):
     monkeypatch.setenv("GROQ_API_KEY", "gsk-test")
-    settings = Settings(embedding_model="BAAI/bge-m3", rerank_url="http://localhost:8001/rerank")
+    settings = Settings(
+        embedding_model="BAAI/bge-m3",
+        embedding_base_url="http://localhost:8080/v1",
+        rerank_url="http://localhost:8001/rerank",
+    )
     assert cli.describe_settings(settings, build_agent(settings)) == (
         "LLM: groq:openai/gpt-oss-20b · retrieval: semantic (BAAI/bge-m3) · rerank: on"
     )

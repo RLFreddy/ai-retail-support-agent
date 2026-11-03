@@ -5,6 +5,8 @@ import types
 
 import httpx
 import pytest
+from pydantic_ai import Embedder
+from pydantic_ai.embeddings import TestEmbeddingModel
 
 from tiendahogar.config import Settings
 from tiendahogar.domain import Language
@@ -23,17 +25,19 @@ DOCS = [
 ]
 
 
-class FakeEmbeddings:
-    """OpenAI-like client: documents map to the axes, queries lean to d0."""
+class FakeEmbedder:
+    """Embedder stand-in: documents map to the axes, queries lean to d0."""
 
     def __init__(self):
-        self.embeddings = self
         self.calls = 0
 
-    def create(self, model, input):
+    def embed_documents_sync(self, texts):
         self.calls += 1
-        vectors = [[0.85, 0.15]] if len(input) == 1 else [[1.0, 0.0], [0.0, 1.0]]
-        return types.SimpleNamespace(data=[types.SimpleNamespace(embedding=v) for v in vectors])
+        return types.SimpleNamespace(embeddings=[[1.0, 0.0], [0.0, 1.0]])
+
+    def embed_query_sync(self, query):
+        self.calls += 1
+        return types.SimpleNamespace(embeddings=[[0.85, 0.15]])
 
 
 class TestLexical:
@@ -66,14 +70,14 @@ class TestLexical:
 
 class TestSemantic:
     def test_ranks_by_cosine_and_embeds_documents_once(self):
-        client = FakeEmbeddings()
-        retriever = SemanticRetriever(client, "m", documents=DOCS, threshold=0.0)
+        embedder = FakeEmbedder()
+        retriever = SemanticRetriever(embedder, documents=DOCS, threshold=0.0)
         assert [r.doc_id for r in retriever.retrieve("q", top_k=2)] == ["d0", "d1"]
         retriever.retrieve("q")
-        assert client.calls == 3  # documents once, then one call per query
+        assert embedder.calls == 3  # documents once, then one call per query
 
     def test_threshold_filters_weak_matches(self):
-        retriever = SemanticRetriever(FakeEmbeddings(), "m", documents=DOCS, threshold=0.5)
+        retriever = SemanticRetriever(FakeEmbedder(), documents=DOCS, threshold=0.5)
         assert [r.doc_id for r in retriever.retrieve("q")] == ["d0"]
 
     def test_reranker_reorders_the_candidates(self):
@@ -82,7 +86,7 @@ class TestSemantic:
                 return [RetrievalResult(r.document, 1.0 - r.score) for r in reversed(results)]
 
         retriever = SemanticRetriever(
-            FakeEmbeddings(), "m", documents=DOCS, threshold=0.0, reranker=Flip()
+            FakeEmbedder(), documents=DOCS, threshold=0.0, reranker=Flip()
         )
         assert [r.doc_id for r in retriever.retrieve("q", top_k=1)] == ["d1"]
 
@@ -122,12 +126,31 @@ class TestBuildRetriever:
         )
         assert isinstance(retriever, SemanticRetriever)
         assert retriever.threshold == 0.56
-        assert str(retriever.client.base_url).startswith("http://localhost:8080/v1")
+        model = retriever.embedder.model
+        assert model.model_name == "BAAI/bge-m3"
+        assert model.base_url.startswith("http://localhost:8080/v1")
         assert retriever.reranker is None
+
+    def test_provider_name_selects_any_pydantic_ai_embedder(self, monkeypatch):
+        monkeypatch.setenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+        retriever = build_retriever(Settings(embedding_model="ollama:nomic-embed-text"))
+        assert retriever.embedder.model.model_name == "nomic-embed-text"
+
+    def test_unknown_embedder_name_fails_at_startup(self):
+        with pytest.raises(Exception, match="nope"):
+            build_retriever(Settings(embedding_model="nope:model"))
+
+    def test_semantic_retriever_runs_on_a_pydantic_ai_test_embedder(self):
+        retriever = SemanticRetriever(Embedder(TestEmbeddingModel()), documents=DOCS, threshold=-1)
+        assert len(retriever.retrieve("warranty", top_k=2)) == 2
 
     def test_rerank_url_enables_the_reranker(self):
         retriever = build_retriever(
-            Settings(embedding_model="BAAI/bge-m3", rerank_url="http://localhost:8001/rerank")
+            Settings(
+                embedding_model="BAAI/bge-m3",
+                embedding_base_url="http://localhost:8080/v1",
+                rerank_url="http://localhost:8001/rerank",
+            )
         )
         assert retriever.reranker.url == "http://localhost:8001/rerank"
 

@@ -1,0 +1,7 @@
+# Cases that share no words with their document: only semantic retrieval can
+# find it. They run in the benchmark variants with embeddings (make bench).
+- description: "exam-05 · shipping question without the word 'shipping'"
+  vars:
+    query: "Can I get my purchases sent to the countryside?"
+    expected_action: answer
+    expected_sources: "2"

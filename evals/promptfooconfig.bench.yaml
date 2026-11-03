@@ -30,3 +30,4 @@ tests:
   - file://cases/exam.yaml
   - file://cases/golden.yaml
   - file://cases/hard.yaml
+  - file://cases/semantic.yaml

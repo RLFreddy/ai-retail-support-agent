@@ -10,9 +10,10 @@ Each case sends one customer message to the agent and grades its **decision**
 | `promptfooconfig.bench.yaml` | Variant matrix with the real model, with and without TEI and reranking. |
 | `provider.py` | promptfoo provider that builds the agent for a variant and returns `{answer, action, sources}`. |
 | `assertions.py` | Default assertion: `expected_action`, `expected_sources`, `includes_sources`, `forbidden`. |
-| `cases/exam.yaml` | The 8 cases of the technical test. |
+| `cases/exam.yaml` | The cases of the technical test. |
 | `cases/golden.yaml` | Retrieval and policy cases. |
 | `cases/hard.yaml` | Adversarial and edge cases. |
+| `cases/semantic.yaml` | Paraphrases only semantic retrieval can match (bench only; lexical variants are expected to miss them). |
 
 ## Running
 

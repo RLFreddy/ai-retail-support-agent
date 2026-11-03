@@ -83,9 +83,7 @@ def test_provider_error_is_not_shown_to_the_customer():
     def boom(messages, info):
         raise ModelHTTPError(503, "groq:x", body="upstream 503")
 
-    resp = make_agent(FunctionModel(boom)).run(
-        "How long is the warranty on a refrigerator?"
-    )
+    resp = make_agent(FunctionModel(boom)).run("How long is the warranty on a refrigerator?")
     assert resp.action == "refer"
     assert "503" not in resp.answer
     assert "Model error" not in resp.answer
@@ -136,9 +134,12 @@ def test_singular_matches_plural_document_terms():
 
 
 def test_rerank_is_not_pointed_at_the_embeddings_server():
-    retriever = build_retriever(Settings(
-        embedding_model="BAAI/bge-m3", embedding_base_url="http://localhost:8080/v1",
-    ))
+    retriever = build_retriever(
+        Settings(
+            embedding_model="BAAI/bge-m3",
+            embedding_base_url="http://localhost:8080/v1",
+        )
+    )
     assert retriever.reranker is None
 
 

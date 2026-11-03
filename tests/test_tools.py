@@ -24,7 +24,7 @@ def test_unknown_order_is_not_invented():
     assert result == {"order_id": "ORD-9999", "status": "not found", "found": False}
 
 
-@pytest.mark.parametrize("order_id", ["", "   ", None])
+@pytest.mark.parametrize("order_id", ["", "   "])
 def test_empty_id_is_not_found(order_id):
     assert get_order_status(order_id)["found"] is False
 

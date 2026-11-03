@@ -32,9 +32,7 @@ class FakeEmbeddings:
     def create(self, model, input):
         self.calls += 1
         vectors = [[0.85, 0.15]] if len(input) == 1 else [[1.0, 0.0], [0.0, 1.0]]
-        return types.SimpleNamespace(
-            data=[types.SimpleNamespace(embedding=v) for v in vectors]
-        )
+        return types.SimpleNamespace(data=[types.SimpleNamespace(embedding=v) for v in vectors])
 
 
 class TestLexical:
@@ -104,7 +102,9 @@ def test_tei_reranker_sends_texts_and_keeps_tei_order(monkeypatch):
     )
     assert captured["url"] == "http://tei:8001/rerank"
     assert captured["json"] == {
-        "query": "q", "texts": [d.content for d in DOCS], "model": "bge-reranker"
+        "query": "q",
+        "texts": [d.content for d in DOCS],
+        "model": "bge-reranker",
     }
     assert [(r.doc_id, r.score) for r in results] == [("d1", 0.99), ("d0", 0.01)]
 
@@ -116,16 +116,16 @@ class TestBuildRetriever:
         assert retriever.threshold == 0.5
 
     def test_embedding_model_enables_semantic_retrieval(self):
-        retriever = build_retriever(Settings(
-            embedding_model="BAAI/bge-m3", embedding_base_url="http://localhost:8080/v1"
-        ))
+        retriever = build_retriever(
+            Settings(embedding_model="BAAI/bge-m3", embedding_base_url="http://localhost:8080/v1")
+        )
         assert isinstance(retriever, SemanticRetriever)
         assert retriever.threshold == 0.56
         assert str(retriever.client.base_url).startswith("http://localhost:8080/v1")
         assert retriever.reranker is None
 
     def test_rerank_url_enables_the_reranker(self):
-        retriever = build_retriever(Settings(
-            embedding_model="BAAI/bge-m3", rerank_url="http://localhost:8001/rerank"
-        ))
+        retriever = build_retriever(
+            Settings(embedding_model="BAAI/bge-m3", rerank_url="http://localhost:8001/rerank")
+        )
         assert retriever.reranker.url == "http://localhost:8001/rerank"

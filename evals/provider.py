@@ -18,8 +18,10 @@ import json
 from tiendahogar.agent import build_agent as build
 from tiendahogar.config import Settings
 
-TEI_EMBEDDINGS = {"embedding_model": "BAAI/bge-m3",
-                  "embedding_base_url": "http://localhost:8080/v1"}
+TEI_EMBEDDINGS = {
+    "embedding_model": "BAAI/bge-m3",
+    "embedding_base_url": "http://localhost:8080/v1",
+}
 TEI_RERANK = {"rerank_url": "http://localhost:8001/rerank"}
 
 

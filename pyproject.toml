@@ -8,7 +8,7 @@ packages = ["src/tiendahogar"]
 [project]
 name = "tiendahogar-support-agent"
 version = "0.1.0"
-description = "Agente de soporte al cliente TiendaHogar: RAG + tool consultar_estado_pedido + guardrails"
+description = "Customer support agent for a home appliance store: RAG, tool calling and guardrails"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
@@ -24,15 +24,18 @@ dependencies = [
     "rich==15.0.0",
 ]
 
-[project.optional-dependencies]
-dev = [
-    "pytest==9.1.1",
-    "pytest-socket>=0.8.1",
-    "ruff>=0.9",
-]
-
 [project.scripts]
 tiendahogar = "tiendahogar.cli:main"
+
+[dependency-groups]
+dev = [
+    "commitizen>=4.19.3",
+    "mypy>=2.4.1",
+    "pre-commit>=4.7.0",
+    "pytest==9.1.1",
+    "pytest-socket>=0.8.1",
+    "ruff>=0.16.1",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -45,5 +48,16 @@ package = true
 line-length = 100
 target-version = "py312"
 
-[tool.ruff.lint.per-file-ignores]
-"scripts/**/*.py" = ["EXE001", "EXE002"]
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "UP", "SIM", "C4", "RUF", "BLE", "PT"]
+#: Dashes LLMs write in ranges ("5‑10 days") and the CLI's separator.
+allowed-confusables = ["‐", "‑", "‒", "–", "—", "·"]
+
+[tool.mypy]
+strict = true
+plugins = ["pydantic.mypy"]
+files = ["src"]
+
+[[tool.mypy.overrides]]
+module = ["bm25s.*", "Stemmer"]
+ignore_missing_imports = true

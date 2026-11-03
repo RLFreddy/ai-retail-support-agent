@@ -20,11 +20,15 @@ from typing import Protocol
 import bm25s
 import httpx
 import numpy as np
+import numpy.typing as npt
 import Stemmer
 from bm25s.stopwords import STOPWORDS_EN
 from openai import OpenAI
 
+from tiendahogar.config import Settings, get_settings
 from tiendahogar.knowledge import DOCUMENTS, Document
+
+Vector = npt.NDArray[np.float64]
 
 # bm25s sets its own logger to DEBUG on import.
 logging.getLogger("bm25s").setLevel(logging.WARNING)
@@ -33,9 +37,34 @@ logging.getLogger("bm25s").setLevel(logging.WARNING)
 #: topic ("how long does a refund take" is about refunds, not about "how").
 STOP_WORDS = sorted(
     set(STOPWORDS_EN)
-    | {"can", "could", "did", "do", "does", "get", "has", "have", "how", "i", "long",
-       "make", "many", "me", "much", "my", "take", "want", "what", "when", "where",
-       "which", "who", "why", "you", "your"}
+    | {
+        "can",
+        "could",
+        "did",
+        "do",
+        "does",
+        "get",
+        "has",
+        "have",
+        "how",
+        "i",
+        "long",
+        "make",
+        "many",
+        "me",
+        "much",
+        "my",
+        "take",
+        "want",
+        "what",
+        "when",
+        "where",
+        "which",
+        "who",
+        "why",
+        "you",
+        "your",
+    }
 )
 
 
@@ -56,7 +85,7 @@ class Retriever(Protocol):
 
 
 def _top(
-    documents: list[Document], scores: np.ndarray, top_k: int, threshold: float
+    documents: list[Document], scores: Vector, top_k: int, threshold: float
 ) -> list[RetrievalResult]:
     order = np.argsort(-scores, kind="stable")
     return [
@@ -74,12 +103,17 @@ class LexicalRetriever:
         self.threshold = threshold
         self._stemmer = Stemmer.Stemmer("english")
         self._index = bm25s.BM25()
-        self._index.index(self._tokenize([d.content for d in self.documents]),
-                          show_progress=False)
+        self._index.index(self._tokenize([d.content for d in self.documents]), show_progress=False)
 
     def _tokenize(self, texts: list[str]) -> list[list[str]]:
-        return bm25s.tokenize(texts, stopwords=STOP_WORDS, stemmer=self._stemmer,
-                              return_ids=False, show_progress=False)
+        tokens: list[list[str]] = bm25s.tokenize(
+            texts,
+            stopwords=STOP_WORDS,
+            stemmer=self._stemmer,
+            return_ids=False,
+            show_progress=False,
+        )
+        return tokens
 
     def retrieve(self, query: str, top_k: int = 3) -> list[RetrievalResult]:
         tokens = self._tokenize([query])[0]
@@ -97,7 +131,10 @@ class TeiReranker:
         self.timeout = timeout
 
     def rerank(self, query: str, results: list[RetrievalResult]) -> list[RetrievalResult]:
-        payload: dict = {"query": query, "texts": [r.document.content for r in results]}
+        payload: dict[str, object] = {
+            "query": query,
+            "texts": [r.document.content for r in results],
+        }
         if self.model:
             payload["model"] = self.model
         response = httpx.post(self.url, json=payload, timeout=self.timeout)
@@ -125,12 +162,13 @@ class SemanticRetriever:
         self.documents = list(documents)
         self.threshold = threshold
         self.reranker = reranker
-        self._doc_vectors: np.ndarray | None = None
+        self._doc_vectors: Vector | None = None
 
-    def _embed(self, texts: list[str]) -> np.ndarray:
+    def _embed(self, texts: list[str]) -> Vector:
         response = self.client.embeddings.create(model=self.model, input=texts)
-        vectors = np.array([item.embedding for item in response.data], dtype=float)
-        return vectors / np.linalg.norm(vectors, axis=1, keepdims=True)
+        vectors = np.array([item.embedding for item in response.data], dtype=np.float64)
+        normalized: Vector = vectors / np.linalg.norm(vectors, axis=1, keepdims=True)
+        return normalized
 
     def retrieve(self, query: str, top_k: int = 3) -> list[RetrievalResult]:
         if not query.strip():
@@ -146,10 +184,8 @@ class SemanticRetriever:
         return results[:top_k]
 
 
-def build_retriever(settings=None) -> Retriever:
+def build_retriever(settings: Settings | None = None) -> Retriever:
     """Semantic retrieval when ``EMBEDDING_MODEL`` is set, lexical otherwise."""
-    from tiendahogar.config import get_settings
-
     settings = settings or get_settings()
     if not settings.embedding_model:
         return LexicalRetriever(threshold=settings.lexical_threshold)

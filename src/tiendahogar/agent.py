@@ -19,10 +19,11 @@ import logging
 
 from pydantic_ai import Agent, ModelRetry, RunContext
 from pydantic_ai.exceptions import AgentRunError, UnexpectedModelBehavior, UserError
-from pydantic_ai.messages import ModelRequest, ToolReturnPart
+from pydantic_ai.messages import ModelMessage, ModelRequest, ToolReturnPart
 from pydantic_ai.models import Model, infer_model
 from pydantic_ai.usage import UsageLimits
 
+from tiendahogar.config import Settings, get_settings
 from tiendahogar.domain import Action, AgentReply
 from tiendahogar.guardrails import (
     check_input,
@@ -32,7 +33,7 @@ from tiendahogar.guardrails import (
 )
 from tiendahogar.knowledge import DOCUMENTS, SUPPORT_EMAIL, default_system_prompt
 from tiendahogar.mock import mock_model
-from tiendahogar.retrieval import Retriever
+from tiendahogar.retrieval import Retriever, build_retriever
 from tiendahogar.tools import get_order_status
 
 log = logging.getLogger(__name__)
@@ -46,9 +47,7 @@ DECLINES = {
     Action.BLOCK: "I cannot process this request because it is outside the scope of TiendaHogar "
     "support.",
 }
-UNAVAILABLE = (
-    f"I cannot answer right now. Please try again later or contact {SUPPORT_EMAIL}."
-)
+UNAVAILABLE = f"I cannot answer right now. Please try again later or contact {SUPPORT_EMAIL}."
 UNVERIFIED = (
     "I could not confirm that answer in our policies. A human agent can help you at "
     f"{SUPPORT_EMAIL}."
@@ -79,7 +78,7 @@ def _context(sources: list[int]) -> str:
     )
 
 
-def _tool_claims(messages: list) -> set[str]:
+def _tool_claims(messages: list[ModelMessage]) -> set[str]:
     """Deadlines returned by the order tool count as grounded facts."""
     claims: set[str] = set()
     for message in messages:
@@ -107,7 +106,7 @@ class SupportAgent:
 
     def __init__(
         self,
-        model: Model | str,
+        model: Model,
         retriever: Retriever,
         top_k: int = 3,
         max_requests: int = 3,
@@ -116,17 +115,14 @@ class SupportAgent:
         self.retriever = retriever
         self.top_k = top_k
         self.usage_limits = UsageLimits(request_limit=max_requests)
-        self.agent = Agent(
+        self.is_mock = model.model_name == "mock"
+        self.agent: Agent[None, str] = Agent(
             model,
             instructions=system_prompt or default_system_prompt(),
             tools=[get_order_status],
             retries=1,
         )
         self.agent.output_validator(_grounded)
-
-    @property
-    def is_mock(self) -> bool:
-        return self.agent.model.model_name == "mock"
 
     def run(self, message: str) -> AgentReply:
         verdict = check_input(message)
@@ -166,11 +162,8 @@ class SupportAgent:
         return list(dict.fromkeys(ids.index(r.doc_id) for r in results))
 
 
-def build_agent(settings=None) -> SupportAgent:
+def build_agent(settings: Settings | None = None) -> SupportAgent:
     """Build the full agent from the settings."""
-    from tiendahogar.config import get_settings
-    from tiendahogar.retrieval import build_retriever
-
     settings = settings or get_settings()
     return SupportAgent(
         model=build_model(settings.llm_model),

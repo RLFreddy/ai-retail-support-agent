@@ -28,9 +28,7 @@ _REFUND_RE = re.compile(r"\b(refund(ed|s)?|reimburse(ment)?|money back)\b", re.I
 _TREATMENT_RE = re.compile(
     r"\b(rude|attitude|insult(ed|ing)?|disrespectful|treated|unfriendly)\b", re.IGNORECASE
 )
-_STAFF_RE = re.compile(
-    r"\b(agent|employee|staff|representative|advisor|cashier)\b", re.IGNORECASE
-)
+_STAFF_RE = re.compile(r"\b(agent|employee|staff|representative|advisor|cashier)\b", re.IGNORECASE)
 #: A contested charge. Asking for an invoice or a receipt is not a dispute.
 _BILLING_RE = re.compile(
     r"\b(disputed?|overcharged|charged (me )?(twice|double|wrong(ly)?)|double charged?"
@@ -42,8 +40,8 @@ _LEGAL_RE = re.compile(r"\b(legal|lawyer|attorney|lawsuit|sue|court)\b", re.IGNO
 _INJECTION_RE = re.compile(
     r"\b(ignore|disregard|forget|override|bypass)\b[^.?!]{0,30}"
     r"\b(instructions?|rules|prompt|guidelines)\b"
-    r"|\b(reveal|show|print|display|repeat|output|tell me)\b[^.?!]{0,30}"
-    r"\b(system prompt|(hidden|internal|secret|initial|original|your) (instructions|prompt|rules))\b"
+    r"|\b(reveal|show|print|display|repeat|output|tell me)\b[^.?!]{0,30}\b(system prompt"
+    r"|(hidden|internal|secret|initial|original|your) (instructions|prompt|rules))\b"
     r"|\bsystem prompt\b"
     r"|\b(you are now|pretend (to be|you are)|developer mode|jailbreak)\b",
     re.IGNORECASE,

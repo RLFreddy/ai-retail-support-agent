@@ -29,7 +29,10 @@ console = Console()
 
 EXIT_WORDS = {"exit", "quit", "q"}
 ACTION_STYLES = {
-    Action.ANSWER: "green", Action.REFER: "yellow", Action.ESCALATE: "red", Action.BLOCK: "red",
+    Action.ANSWER: "green",
+    Action.REFER: "yellow",
+    Action.ESCALATE: "red",
+    Action.BLOCK: "red",
 }
 
 

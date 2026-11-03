@@ -9,6 +9,7 @@ says it has no information when nothing matches.
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 
 from pydantic_ai.messages import (
     ModelMessage,
@@ -27,23 +28,30 @@ ORDER_RE = re.compile(r"\bORD-\d+\b", re.IGNORECASE)
 
 #: Keyword prefix → index of the document that answers it.
 KEYWORDS = {
-    "warrant": 0, "guarantee": 0,
+    "warrant": 0,
+    "guarantee": 0,
     "return": 1,
-    "ship": 2, "deliver": 2,
+    "ship": 2,
+    "deliver": 2,
     "refund": 3,
-    "contact": 4, "complain": 4, "support": 4, "billing": 4, "legal": 4,
-    "dispute": 4, "employee": 4,
+    "contact": 4,
+    "complain": 4,
+    "support": 4,
+    "billing": 4,
+    "legal": 4,
+    "dispute": 4,
+    "employee": 4,
 }
 
 
-def _answer_from_order(status: dict) -> str:
+def _answer_from_order(status: Mapping[str, object]) -> str:
     order_id = status.get("order_id", "")
     if status.get("found") is not True:
         return (
             f"I could not find order {order_id}. Please check the number or "
             f"contact {SUPPORT_EMAIL}."
         )
-    answer = f"Your order {order_id} ({status['product']}) is {status['status'].lower()}"
+    answer = f"Your order {order_id} ({status['product']}) is {str(status['status']).lower()}"
     estimate = status.get("estimated_delivery", "-")
     if estimate != "-":
         answer += f" and will arrive in {estimate}"
@@ -67,17 +75,13 @@ def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
     assert isinstance(request, ModelRequest)
 
     for part in request.parts:
-        if isinstance(part, ToolReturnPart):
+        if isinstance(part, ToolReturnPart) and isinstance(part.content, Mapping):
             return ModelResponse(parts=[TextPart(_answer_from_order(part.content))])
 
-    question = next(
-        str(part.content) for part in request.parts if isinstance(part, UserPromptPart)
-    )
+    question = next(str(part.content) for part in request.parts if isinstance(part, UserPromptPart))
     order = ORDER_RE.search(question)
     if order and any(t.name == "get_order_status" for t in info.function_tools):
-        return ModelResponse(
-            parts=[ToolCallPart("get_order_status", {"order_id": order.group()})]
-        )
+        return ModelResponse(parts=[ToolCallPart("get_order_status", {"order_id": order.group()})])
     return ModelResponse(parts=[TextPart(_answer_from_context(question, info.instructions or ""))])
 
 

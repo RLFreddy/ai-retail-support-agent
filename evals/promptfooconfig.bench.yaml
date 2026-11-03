@@ -31,4 +31,5 @@ tests:
   - file://cases/golden.yaml
   - file://cases/hard.yaml
   - file://cases/spanish.yaml
+  - file://cases/followup.yaml
   - file://cases/semantic.yaml

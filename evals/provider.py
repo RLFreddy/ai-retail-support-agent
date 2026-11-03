@@ -7,7 +7,9 @@ The provider ``config`` selects the variant under test:
 - ``semantic``: use bge-m3 on the local TEI server instead of lexical BM25.
 - ``rerank``: also rerank with the local TEI cross-encoder.
 
-The test variable ``language`` (``en`` by default) picks the agent's language.
+Test variables: ``language`` (``en`` by default) picks the agent's language,
+and ``previous`` is asked first so that its reply becomes the history of the
+message under test (a follow-up).
 
 The output is a JSON object with ``answer``, ``action`` and ``sources`` so the
 assertions can grade the agent's decision, not just its wording. Token usage
@@ -20,7 +22,7 @@ import json
 
 from tiendahogar.agent import build_agent as build
 from tiendahogar.config import Settings
-from tiendahogar.domain import Language
+from tiendahogar.domain import Language, Turn
 
 TEI_EMBEDDINGS = {
     "embedding_model": "BAAI/bge-m3",
@@ -42,8 +44,15 @@ def build_agent(config: dict, language: Language = Language.EN):
 
 def call_api(prompt: str, options: dict, context: dict) -> dict:
     try:
-        language = Language(context.get("vars", {}).get("language", "en"))
-        response = build_agent(options.get("config", {}), language).run(prompt)
+        test_vars = context.get("vars", {})
+        agent = build_agent(options.get("config", {}), Language(test_vars.get("language", "en")))
+        history: list[Turn] = []
+        tokens = [0, 0]
+        if previous := test_vars.get("previous"):
+            first = agent.run(previous)
+            history = [Turn("user", previous), Turn("assistant", first.answer)]
+            tokens = [first.input_tokens, first.output_tokens]
+        response = agent.run(prompt, history)
     except Exception as exc:  # noqa: BLE001 - report infra failures as errors, not fails
         return {"error": f"{type(exc).__name__}: {exc}"}
     return {
@@ -52,8 +61,8 @@ def call_api(prompt: str, options: dict, context: dict) -> dict:
             ensure_ascii=False,
         ),
         "tokenUsage": {
-            "prompt": response.input_tokens,
-            "completion": response.output_tokens,
-            "total": response.input_tokens + response.output_tokens,
+            "prompt": tokens[0] + response.input_tokens,
+            "completion": tokens[1] + response.output_tokens,
+            "total": sum(tokens) + response.input_tokens + response.output_tokens,
         },
     }

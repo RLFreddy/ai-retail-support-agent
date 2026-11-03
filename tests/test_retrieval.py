@@ -7,7 +7,8 @@ import httpx
 import pytest
 
 from tiendahogar.config import Settings
-from tiendahogar.knowledge import Document
+from tiendahogar.domain import Language
+from tiendahogar.knowledge import KNOWLEDGE, Document
 from tiendahogar.retrieval import (
     LexicalRetriever,
     RetrievalResult,
@@ -129,3 +130,31 @@ class TestBuildRetriever:
             Settings(embedding_model="BAAI/bge-m3", rerank_url="http://localhost:8001/rerank")
         )
         assert retriever.reranker.url == "http://localhost:8001/rerank"
+
+
+class TestSpanishLexical:
+    @pytest.fixture(scope="class")
+    def retriever(self) -> LexicalRetriever:
+        return LexicalRetriever(language=Language.ES)
+
+    @pytest.mark.parametrize(
+        ("query", "doc_id"),
+        [
+            ("¿Cuánto dura la garantía de una refrigeradora?", "warranty"),
+            ("¿Cómo hago una devolución?", "returns"),
+            ("¿Cuanto demora el envio a otra ciudad?", "shipping"),  # no accents
+            ("¿En cuántos días se reembolsa?", "refunds"),
+            ("Quiero poner una queja sobre un empleado", "contact"),
+        ],
+    )
+    def test_spanish_question_finds_its_document(self, retriever, query, doc_id):
+        results = retriever.retrieve(query)
+        assert results[0].doc_id == doc_id
+        assert results[0].document.title in {d.title for d in KNOWLEDGE[Language.ES]}
+
+    def test_unrelated_spanish_question_finds_nothing(self, retriever):
+        assert retriever.retrieve("¿Cuál es el clima de Marte?") == []
+
+    def test_build_retriever_indexes_the_requested_language(self):
+        retriever = build_retriever(Settings(), Language.ES)
+        assert retriever.retrieve("garantía")[0].document.title == "Política de garantía"

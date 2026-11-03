@@ -22,20 +22,21 @@ import httpx
 import numpy as np
 import numpy.typing as npt
 import Stemmer
-from bm25s.stopwords import STOPWORDS_EN
+from bm25s.stopwords import STOPWORDS_EN, STOPWORDS_SPANISH
 from openai import OpenAI
 
 from tiendahogar.config import Settings, get_settings
-from tiendahogar.knowledge import DOCUMENTS, Document
+from tiendahogar.domain import Language
+from tiendahogar.knowledge import KNOWLEDGE, Document
 
 Vector = npt.NDArray[np.float64]
 
 # bm25s sets its own logger to DEBUG on import.
 logging.getLogger("bm25s").setLevel(logging.WARNING)
 
-#: bm25s' English list plus the question words customers type, which carry no
-#: topic ("how long does a refund take" is about refunds, not about "how").
-STOP_WORDS = sorted(
+#: bm25s' lists plus the question words customers type, which carry no topic
+#: ("how long does a refund take" is about refunds, not about "how").
+STOP_WORDS_EN = sorted(
     set(STOPWORDS_EN)
     | {
         "can",
@@ -66,6 +67,41 @@ STOP_WORDS = sorted(
         "your",
     }
 )
+STOP_WORDS_ES = sorted(
+    set(STOPWORDS_SPANISH)
+    | {
+        "cuanto",
+        "cuánto",
+        "cuanta",
+        "cuánta",
+        "cuantos",
+        "cuántos",
+        "cuantas",
+        "cuántas",
+        "como",
+        "cómo",
+        "donde",
+        "dónde",
+        "cuando",
+        "cuándo",
+        "cual",
+        "cuál",
+        "que",
+        "qué",
+        "dura",
+        "demora",
+        "tarda",
+        "puedo",
+        "pueden",
+        "quiero",
+        "necesito",
+        "tengo",
+        "hacer",
+        "hago",
+    }
+)
+#: Snowball stemmer and stop words for each language.
+_ANALYZERS = {Language.EN: ("english", STOP_WORDS_EN), Language.ES: ("spanish", STOP_WORDS_ES)}
 
 
 @dataclass(frozen=True)
@@ -96,19 +132,25 @@ def _top(
 
 
 class LexicalRetriever:
-    """BM25 (bm25s) over stemmed English tokens."""
+    """BM25 (bm25s) over stemmed tokens of the documents' language."""
 
-    def __init__(self, documents: list[Document] = DOCUMENTS, threshold: float = 0.5):
-        self.documents = list(documents)
+    def __init__(
+        self,
+        documents: list[Document] | None = None,
+        threshold: float = 0.5,
+        language: Language = Language.EN,
+    ):
+        self.documents = list(KNOWLEDGE[language] if documents is None else documents)
         self.threshold = threshold
-        self._stemmer = Stemmer.Stemmer("english")
+        stemmer, self._stop_words = _ANALYZERS[language]
+        self._stemmer = Stemmer.Stemmer(stemmer)
         self._index = bm25s.BM25()
         self._index.index(self._tokenize([d.content for d in self.documents]), show_progress=False)
 
     def _tokenize(self, texts: list[str]) -> list[list[str]]:
         tokens: list[list[str]] = bm25s.tokenize(
             texts,
-            stopwords=STOP_WORDS,
+            stopwords=self._stop_words,
             stemmer=self._stemmer,
             return_ids=False,
             show_progress=False,
@@ -153,13 +195,13 @@ class SemanticRetriever:
         self,
         client: OpenAI,
         model: str,
-        documents: list[Document] = DOCUMENTS,
+        documents: list[Document] | None = None,
         threshold: float = 0.56,
         reranker: TeiReranker | None = None,
     ):
         self.client = client
         self.model = model
-        self.documents = list(documents)
+        self.documents = list(KNOWLEDGE[Language.EN] if documents is None else documents)
         self.threshold = threshold
         self.reranker = reranker
         self._doc_vectors: Vector | None = None
@@ -184,11 +226,14 @@ class SemanticRetriever:
         return results[:top_k]
 
 
-def build_retriever(settings: Settings | None = None) -> Retriever:
-    """Semantic retrieval when ``EMBEDDING_MODEL`` is set, lexical otherwise."""
+def build_retriever(
+    settings: Settings | None = None, language: Language = Language.EN
+) -> Retriever:
+    """Retriever over the documents in ``language``: semantic when
+    ``EMBEDDING_MODEL`` is set, lexical otherwise."""
     settings = settings or get_settings()
     if not settings.embedding_model:
-        return LexicalRetriever(threshold=settings.lexical_threshold)
+        return LexicalRetriever(threshold=settings.lexical_threshold, language=language)
 
     client = OpenAI(
         base_url=settings.embedding_base_url or None,
@@ -201,6 +246,7 @@ def build_retriever(settings: Settings | None = None) -> Retriever:
     return SemanticRetriever(
         client,
         settings.embedding_model,
+        documents=KNOWLEDGE[language],
         threshold=settings.semantic_threshold,
         reranker=reranker,
     )

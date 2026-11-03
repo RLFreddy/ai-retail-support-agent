@@ -5,14 +5,81 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_LOCKED: "1"  # fail if uv.lock is out of date with pyproject.toml
+
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0  # cz check reads the commits of the pull request
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - run: uv sync
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - name: Conventional commit messages
+        if: github.event_name == 'pull_request'
+        run: uv run cz check --rev-range "origin/${{ github.base_ref }}..HEAD"
+
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - run: uv sync
+      - run: uv run mypy
+
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
         with:
-          python-version: "3.12"
-      - run: uv sync --extra dev
-      - run: uv run pytest tests/
-      - run: uv run ruff check src tests scripts
+          enable-cache: true
+      - run: uv sync
+      - run: uv run pytest
+
+  eval:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - run: make eval
+
+  mcp:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - run: uv sync
+      - run: make mcp-smoke
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker build -t tiendahogar .
+      - name: Smoke test the image (mock model, non-root)
+        run: |
+          docker run --rm tiendahogar | grep -q "Source: Warranty policy"
+          test "$(docker run --rm --entrypoint id tiendahogar -u)" = 10001

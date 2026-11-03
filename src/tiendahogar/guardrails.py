@@ -82,7 +82,7 @@ _SENSITIVE_RE = re.compile(
 #: A deadline: "30 days", "2-3 business days", "5 to 10 business days", "12-month",
 #: "5 a 7 días hábiles", "12 meses".
 _CLAIM_RE = re.compile(
-    r"\b(?P<low>\d+)(?:\s*(?:[-‐‑‒–—]|to|a)\s*(?P<high>\d+))?[\s‐‑‒–—-]*"
+    r"\b(?P<low>\d+)(?:\s*(?:[-‐‑‒–—]|to|and|a|y)\s*(?P<high>\d+))?[\s‐‑‒–—-]*"
     r"(?P<unit>business days?|days?|weeks?|months?|years?"
     r"|d[ií]as? h[aá]bil(es)?|d[ií]as?|semanas?|meses|mes|años?)\b",
     re.IGNORECASE,

@@ -142,6 +142,8 @@ class TestOutput:
             "Refunds take 5\u201110 business days.",  # non-breaking hyphen, as LLMs write it
             "Refunds take 5 \u2013 10 business days.",
             "Blenders have a 6-month warranty.",
+            "Refunds take between 5 and 10 business days.",
+            "Los envíos a otras ciudades tardan entre 5 y 7 días hábiles.",  # Groq, es-05
         ],
     )
     def test_policy_deadlines_pass_in_any_spelling(self, answer):

@@ -8,7 +8,8 @@ The provider ``config`` selects the variant under test:
 - ``rerank``: also rerank with the local TEI cross-encoder.
 
 The output is a JSON object with ``answer``, ``action`` and ``sources`` so the
-assertions can grade the agent's decision, not just its wording.
+assertions can grade the agent's decision, not just its wording. Token usage
+is reported to promptfoo, which adds it (and the latency) to the results.
 """
 
 from __future__ import annotations
@@ -45,5 +46,10 @@ def call_api(prompt: str, options: dict, context: dict) -> dict:
         "output": json.dumps(
             {"answer": response.answer, "action": response.action, "sources": response.sources},
             ensure_ascii=False,
-        )
+        ),
+        "tokenUsage": {
+            "prompt": response.input_tokens,
+            "completion": response.output_tokens,
+            "total": response.input_tokens + response.output_tokens,
+        },
     }

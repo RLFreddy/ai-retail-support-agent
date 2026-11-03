@@ -9,9 +9,6 @@ Needs the ``web`` extra. Endpoints:
 
 from __future__ import annotations
 
-import logging
-import time
-
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
 
@@ -19,8 +16,6 @@ from tiendahogar import __version__
 from tiendahogar.agent import SupportAgent, build_agent
 from tiendahogar.config import get_settings
 from tiendahogar.domain import Action
-
-log = logging.getLogger(__name__)
 
 
 class ChatRequest(BaseModel):
@@ -54,16 +49,7 @@ def create_app(agent: SupportAgent | None = None, *, with_ui: bool = True) -> Fa
     # agent call never stalls the event loop.
     @app.post("/chat")
     def chat(request: ChatRequest) -> ChatResponse:
-        start = time.perf_counter()
         reply = agent.run(request.message)
-        log.info(
-            "chat",
-            extra={
-                "action": str(reply.action),
-                "sources": reply.sources,
-                "latency_ms": round((time.perf_counter() - start) * 1000),
-            },
-        )
         return ChatResponse(answer=reply.answer, action=reply.action, sources=reply.sources)
 
     if with_ui:

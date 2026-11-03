@@ -10,18 +10,21 @@
    the escalation message.
 
 ``run(message) -> AgentReply`` returns the answer, the action
-(answer | refer | escalate | block) and the indices of the retrieved documents.
+(answer | refer | escalate | block), the indices of the retrieved documents
+and the tokens spent; each run is logged with its latency.
 """
 
 from __future__ import annotations
 
 import logging
+import time
+from dataclasses import replace
 
 from pydantic_ai import Agent, ModelRetry, RunContext
 from pydantic_ai.exceptions import AgentRunError, UnexpectedModelBehavior, UserError
 from pydantic_ai.messages import ModelMessage, ModelRequest, ToolReturnPart
 from pydantic_ai.models import Model, infer_model
-from pydantic_ai.usage import UsageLimits
+from pydantic_ai.usage import RunUsage, UsageLimits
 
 from tiendahogar.config import Settings, get_settings
 from tiendahogar.domain import Action, AgentReply
@@ -125,6 +128,27 @@ class SupportAgent:
         self.agent.output_validator(_grounded)
 
     def run(self, message: str) -> AgentReply:
+        start = time.perf_counter()
+        usage = RunUsage()  # filled in place, also when the run fails
+        reply = replace(
+            self._run(message, usage),
+            input_tokens=usage.input_tokens,
+            output_tokens=usage.output_tokens,
+        )
+        log.info(
+            "reply",
+            extra={
+                "action": str(reply.action),
+                "sources": reply.sources,
+                "model_requests": usage.requests,
+                "input_tokens": usage.input_tokens,
+                "output_tokens": usage.output_tokens,
+                "latency_ms": round((time.perf_counter() - start) * 1000),
+            },
+        )
+        return reply
+
+    def _run(self, message: str, usage: RunUsage) -> AgentReply:
         verdict = check_input(message)
         if not verdict.passed:
             log.info("input %s: %s", verdict.action, verdict.reason)
@@ -133,7 +157,10 @@ class SupportAgent:
         sources = self._retrieve(message)
         try:
             result = self.agent.run_sync(
-                message, instructions=_context(sources), usage_limits=self.usage_limits
+                message,
+                instructions=_context(sources),
+                usage_limits=self.usage_limits,
+                usage=usage,
             )
         except UnexpectedModelBehavior as exc:
             log.warning("no grounded answer after retrying: %s", exc)

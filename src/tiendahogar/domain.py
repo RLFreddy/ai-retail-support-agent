@@ -29,9 +29,11 @@ class Verdict:
 
 @dataclass(frozen=True)
 class AgentReply:
-    """The agent's reply: the text for the customer, the action taken and the
-    indices of the documents it was grounded on."""
+    """The agent's reply: the text for the customer, the action taken, the
+    indices of the documents it was grounded on and the model tokens spent."""
 
     answer: str
     action: Action = Action.ANSWER
     sources: list[int] = field(default_factory=list)
+    input_tokens: int = 0
+    output_tokens: int = 0

@@ -16,16 +16,16 @@ replies.
 
 <p align="center">
   <img src="assets/demo.gif"
-       alt="Terminal chat: a cited warranty answer, an order lookup, an escalated refund and a blocked prompt injection"
+       alt="Terminal chat: a cited warranty answer and an escalated refund in English, then an order lookup and a blocked prompt injection in Spanish"
        width="760">
-  <br><em>Terminal: <code>tiendahogar chat</code></em>
+  <br><em>Terminal: <code>tiendahogar chat</code>, then <code>--lang es</code></em>
 </p>
 
 <p align="center">
   <img src="assets/demo-web.gif"
-       alt="Web chat: the same four questions answered, escalated and blocked in the browser"
+       alt="Web chat: two questions in the English tab, then the Spanish tab answers an order lookup and blocks a prompt injection"
        width="760">
-  <br><em>Web UI: <code>tiendahogar serve</code></em>
+  <br><em>Web UI: <code>tiendahogar serve</code>, English and Español tabs</em>
 </p>
 
 **Stack:** Python 3.12 · [Pydantic AI](https://ai.pydantic.dev/) · BM25

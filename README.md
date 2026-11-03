@@ -16,6 +16,14 @@ approves money it is not allowed to.
   <img src="assets/demo.gif"
        alt="Terminal chat: a cited warranty answer, an order lookup, an escalated refund and a blocked prompt injection"
        width="760">
+  <br><em>Terminal: <code>tiendahogar chat</code></em>
+</p>
+
+<p align="center">
+  <img src="assets/demo-web.gif"
+       alt="Web chat: the same four questions answered, escalated and blocked in the browser"
+       width="760">
+  <br><em>Web UI: <code>tiendahogar serve</code></em>
 </p>
 
 **Stack:** Python 3.12 · [Pydantic AI](https://ai.pydantic.dev/) · BM25

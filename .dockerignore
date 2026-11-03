@@ -1,7 +1,8 @@
-# Only pyproject.toml, uv.lock, README.md and src/ are needed to build.
+# Only pyproject.toml, uv.lock, README.md, LICENSE and src/ are needed to build.
 *
 !pyproject.toml
 !uv.lock
 !README.md
+!LICENSE
 !src/
 **/__pycache__

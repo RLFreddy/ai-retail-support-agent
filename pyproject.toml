@@ -10,6 +10,9 @@ name = "tiendahogar-support-agent"
 version = "1.0.0"
 description = "Customer support agent for a home appliance store: RAG, tool calling and guardrails"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Freddy Rojas" }]
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "bm25s>=0.3.16",

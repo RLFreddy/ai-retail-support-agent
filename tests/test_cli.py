@@ -132,7 +132,8 @@ def test_main_query_responde_en_modo_mock(capsys, monkeypatch):
     monkeypatch.setattr(cli.cli_rich, "get_settings", _settings_sin_key)
     rc = cli.main(["--query", "¿Cuánto dura la garantía de una refrigeradora?"])
     assert rc == 0
-    assert "garantía" in capsys.readouterr().out.lower() or "garantia" in capsys.readouterr().out.lower()
+    out = capsys.readouterr().out.lower()
+    assert "garantía" in out or "garantia" in out
 
 
 def test_main_query_desde_igual(capsys, monkeypatch):

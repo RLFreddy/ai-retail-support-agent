@@ -69,7 +69,7 @@ def create_app(agent: SupportAgent | None = None, *, with_ui: bool = True) -> Fa
     if with_ui:
         import gradio as gr
 
-        from tiendahogar.ui import build_ui
+        from tiendahogar.ui import THEME, build_ui
 
-        app = gr.mount_gradio_app(app, build_ui(agent), path="/")
+        app = gr.mount_gradio_app(app, build_ui(agent), path="/", theme=THEME)
     return app

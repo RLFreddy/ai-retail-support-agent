@@ -12,6 +12,8 @@ import gradio as gr
 from tiendahogar.agent import SupportAgent
 from tiendahogar.domain import Action, AgentReply
 
+THEME = gr.themes.Soft(primary_hue="indigo")
+
 EXAMPLES = [
     "How long is the warranty on a refrigerator?",
     "Where is my order ORD-1002?",

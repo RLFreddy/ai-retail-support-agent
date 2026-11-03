@@ -31,10 +31,28 @@ _TREATMENT_RE = re.compile(
 _STAFF_RE = re.compile(
     r"\b(agent|employee|staff|representative|advisor|cashier)\b", re.IGNORECASE
 )
+#: A contested charge. Asking for an invoice or a receipt is not a dispute.
 _BILLING_RE = re.compile(
-    r"\b(dispute|charges|billing|invoice|receipt|statement|double charge)\b", re.IGNORECASE
+    r"\b(disputed?|overcharged|charged (me )?(twice|double|wrong(ly)?)|double charged?"
+    r"|unauthori[sz]ed charge|billing (error|issue|problem|mistake))\b",
+    re.IGNORECASE,
 )
 _LEGAL_RE = re.compile(r"\b(legal|lawyer|attorney|lawsuit|sue|court)\b", re.IGNORECASE)
+
+_INJECTION_RE = re.compile(
+    r"\b(ignore|disregard|forget|override|bypass)\b[^.?!]{0,30}"
+    r"\b(instructions?|rules|prompt|guidelines)\b"
+    r"|\b(reveal|show|print|display|repeat|output|tell me)\b[^.?!]{0,30}"
+    r"\b(system prompt|(hidden|internal|secret|initial|original|your) (instructions|prompt|rules))\b"
+    r"|\bsystem prompt\b"
+    r"|\b(you are now|pretend (to be|you are)|developer mode|jailbreak)\b",
+    re.IGNORECASE,
+)
+_SENSITIVE_RE = re.compile(
+    r"\b(password|passcode|creds|cvv|cvc)\b"
+    r"|\b\d(?:[ -]?\d){12,18}\b",  # 13 to 19 digits: a card number
+    re.IGNORECASE,
+)
 
 #: "(quantity, time unit)" pairs used to ground the output.
 _CLAIM_RE = re.compile(r"(\d+\s*(?:business days?|months?|weeks?|years?))", re.IGNORECASE)
@@ -61,10 +79,9 @@ def _rule_human_topics(message: str) -> str | None:
 
 
 def _rule_injection_or_pii(message: str) -> str | None:
-    lowered = message.lower()
-    if re.search(r"\b(system prompt|ignore (previous|all)|reveal instructions)\b", lowered):
+    if _INJECTION_RE.search(message):
         return "possible prompt injection"
-    if re.search(r"\b(creds|password|cvv|card\s*(is\s+)?\d{4}|\d{15,16})\b", lowered):
+    if _SENSITIVE_RE.search(message):
         return "sensitive data (credentials or card) in the message"
     return None
 

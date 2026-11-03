@@ -7,7 +7,7 @@ packages = ["src/tiendahogar"]
 
 [project]
 name = "tiendahogar-support-agent"
-version = "0.1.0"
+version = "1.0.0"
 description = "Customer support agent for a home appliance store: RAG, tool calling and guardrails"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"

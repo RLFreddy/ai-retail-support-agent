@@ -133,7 +133,7 @@ class TestBuildRetriever:
 
 
 class TestSpanishLexical:
-    @pytest.fixture(scope="class")
+    @pytest.fixture
     def retriever(self) -> LexicalRetriever:
         return LexicalRetriever(language=Language.ES)
 
@@ -142,6 +142,7 @@ class TestSpanishLexical:
         [
             ("¿Cuánto dura la garantía de una refrigeradora?", "warranty"),
             ("¿Cómo hago una devolución?", "returns"),
+            ("¿Puedo devolver una licuadora?", "returns"),  # devolver ~ devoluciones
             ("¿Cuanto demora el envio a otra ciudad?", "shipping"),  # no accents
             ("¿En cuántos días se reembolsa?", "refunds"),
             ("Quiero poner una queja sobre un empleado", "contact"),

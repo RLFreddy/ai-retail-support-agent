@@ -102,6 +102,12 @@ STOP_WORDS_ES = sorted(
 )
 #: Snowball stemmer and stop words for each language.
 _ANALYZERS = {Language.EN: ("english", STOP_WORDS_EN), Language.ES: ("spanish", STOP_WORDS_ES)}
+#: Stems Snowball keeps apart although they are the same word family:
+#: "devolver" → devolv, "devoluciones" → devolu, "devuelto" → devuelt.
+_STEM_ALIASES = {
+    Language.EN: {},
+    Language.ES: {"devolu": "devolv", "devuelt": "devolv", "devuelv": "devolv"},
+}
 
 
 @dataclass(frozen=True)
@@ -143,6 +149,7 @@ class LexicalRetriever:
         self.documents = list(KNOWLEDGE[language] if documents is None else documents)
         self.threshold = threshold
         stemmer, self._stop_words = _ANALYZERS[language]
+        self._aliases = _STEM_ALIASES[language]
         self._stemmer = Stemmer.Stemmer(stemmer)
         self._index = bm25s.BM25()
         self._index.index(self._tokenize([d.content for d in self.documents]), show_progress=False)
@@ -155,7 +162,7 @@ class LexicalRetriever:
             return_ids=False,
             show_progress=False,
         )
-        return tokens
+        return [[self._aliases.get(t, t) for t in doc] for doc in tokens]
 
     def retrieve(self, query: str, top_k: int = 3) -> list[RetrievalResult]:
         tokens = self._tokenize([query])[0]

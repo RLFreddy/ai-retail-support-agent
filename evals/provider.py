@@ -2,8 +2,8 @@
 
 The provider ``config`` selects the variant under test:
 
-- ``llm``: ``mock`` (deterministic, offline) or ``real`` (uses ``LLM_MODEL``
-  and its API key from the environment).
+- ``llm``: ``mock`` (deterministic, offline) or ``real`` (``LLM_MODEL`` and
+  its API key from the environment, e.g. ``--env-file .env``).
 - ``semantic``: use bge-m3 on the local TEI server instead of lexical BM25.
 - ``rerank``: also rerank with the local TEI cross-encoder.
 
@@ -14,12 +14,9 @@ assertions can grade the agent's decision, not just its wording.
 from __future__ import annotations
 
 import json
-import sys
-from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+from tiendahogar.agent import build_agent as build
+from tiendahogar.config import Settings
 
 TEI_EMBEDDINGS = {"embedding_model": "BAAI/bge-m3",
                   "embedding_base_url": "http://localhost:8080/v1"}
@@ -27,26 +24,14 @@ TEI_RERANK = {"rerank_url": "http://localhost:8001/rerank"}
 
 
 def build_agent(config: dict):
-    from tiendahogar.agent import SupportAgent
-    from tiendahogar.config import Settings
-    from tiendahogar.llm import MockLLM, build_client
-    from tiendahogar.retrieval import build_retriever
-
     overrides: dict = {}
     if config.get("semantic"):
         overrides |= TEI_EMBEDDINGS
     if config.get("rerank"):
         overrides |= TEI_RERANK
-    settings = Settings(**overrides)
-
-    llm = MockLLM() if config.get("llm", "mock") == "mock" else build_client(settings)
-    return SupportAgent(
-        llm=llm,
-        retriever=build_retriever(settings),
-        max_turns=settings.max_turns,
-        top_k=settings.top_k,
-        system_prompt=settings.system_prompt_text,
-    )
+    if config.get("llm", "mock") == "mock":
+        overrides["llm_model"] = "mock"
+    return build(Settings(**overrides))
 
 
 def call_api(prompt: str, options: dict, context: dict) -> dict:

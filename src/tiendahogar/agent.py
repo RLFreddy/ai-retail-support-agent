@@ -1,35 +1,46 @@
 """TiendaHogar support agent.
 
-A small hand-written loop:
+1. Input guardrail (``check_input``): refer, escalate or block before any model call.
+2. Retrieval over the knowledge base; the matches go into the instructions.
+3. A Pydantic AI run with the ``get_order_status`` tool and a request limit.
+4. Output guardrail (``check_output``) with grounding against the corpus and
+   the tool results.
 
-1. Input guardrail (``check_input``).
-2. Retrieval over the knowledge base.
-3. Tool-calling loop with the LLM (at most ``max_turns`` calls).
-4. Run ``get_order_status`` and feed the result back to the model.
-5. Output guardrail (``check_output``) with grounding against the corpus.
-
-``run(user_message) -> AgentResponse`` returns the answer, the action
-(answer | refer | escalate | block) and the indices of the cited documents.
+``run(message) -> AgentResponse`` returns the answer, the action
+(answer | refer | escalate | block) and the indices of the retrieved documents.
 """
 
 from __future__ import annotations
 
-import json
+import logging
 from dataclasses import dataclass, field
-from typing import Any
 
-from tiendahogar.guardrails import (
-    GuardrailVerdict,
-    check_input,
-    check_output,
-    extract_known_claims,
-)
+from pydantic_ai import Agent
+from pydantic_ai.exceptions import AgentRunError, UserError
+from pydantic_ai.messages import ModelRequest, ToolReturnPart
+from pydantic_ai.models import Model, infer_model
+from pydantic_ai.usage import UsageLimits
+
+from tiendahogar.guardrails import GuardrailVerdict, check_input, check_output, extract_known_claims
 from tiendahogar.knowledge import DOCUMENTS, SUPPORT_EMAIL, default_system_prompt
-from tiendahogar.llm import LLMClient, ToolCall
+from tiendahogar.mock import mock_model
 from tiendahogar.retrieval import Retriever
-from tiendahogar.tools import TOOL_SCHEMA, get_order_status
+from tiendahogar.tools import get_order_status
 
-TOOL_NAME = "get_order_status"
+log = logging.getLogger(__name__)
+
+DECLINES = {
+    "refer": f"A human agent has to handle this topic. Please write to {SUPPORT_EMAIL}.",
+    "escalate": (
+        "This amount needs approval from a human supervisor; the AI assistant cannot "
+        f"resolve it. Please write to {SUPPORT_EMAIL}."
+    ),
+    "block": "I cannot process this request because it is outside the scope of TiendaHogar "
+    "support.",
+}
+UNAVAILABLE = (
+    f"I cannot answer right now. Please try again later or contact {SUPPORT_EMAIL}."
+)
 
 
 @dataclass(frozen=True)
@@ -38,14 +49,26 @@ class AgentResponse:
     action: str = "answer"  # answer | refer | escalate | block
     sources: list[int] = field(default_factory=list)
     guardrail: GuardrailVerdict | None = None
-    raw_steps: int = 0
 
 
-def _grounding_prompt(sources: list[int]) -> str:
-    """Build the retrieval context block with [source:N] citations."""
-    blocks = [
-        f"[source:{i}] {DOCUMENTS[i].title}\n{DOCUMENTS[i].content}" for i in sources
-    ]
+def build_model(name: str) -> Model:
+    """Resolve ``provider:model``; ``mock`` or a missing key gives the offline mock."""
+    if name == "mock":
+        return mock_model()
+    try:
+        return infer_model(name)
+    except UserError as exc:
+        log.warning("%s Falling back to the offline mock model.", exc)
+        return mock_model()
+
+
+def _context(sources: list[int]) -> str:
+    if not sources:
+        return (
+            "No document is relevant to this question. Say you do not have that "
+            f"information and suggest contacting {SUPPORT_EMAIL}."
+        )
+    blocks = [f"[source:{i}] {DOCUMENTS[i].title}\n{DOCUMENTS[i].content}" for i in sources]
     return (
         "CONTEXT (answer ONLY from these documents; cite each fact with its "
         "[source:N] tag):\n" + "\n\n".join(blocks)
@@ -53,164 +76,80 @@ def _grounding_prompt(sources: list[int]) -> str:
 
 
 class SupportAgent:
-    """The agent: guardrails, retrieval and tool calling in one loop."""
+    """Guardrails and retrieval around a Pydantic AI agent with the order tool."""
 
     def __init__(
         self,
-        llm: LLMClient,
+        model: Model | str,
         retriever: Retriever,
-        max_turns: int = 2,
         top_k: int = 3,
+        max_requests: int = 3,
         system_prompt: str | None = None,
-        tools: list[dict] | None = None,
     ):
-        self.llm = llm
         self.retriever = retriever
-        self.max_turns = max(1, max_turns)
-        self.top_k = max(1, top_k)
-        self.system_prompt = system_prompt or default_system_prompt()
-        self.tools = tools or [TOOL_SCHEMA]
+        self.top_k = top_k
+        self.usage_limits = UsageLimits(request_limit=max_requests)
+        self.agent = Agent(
+            model,
+            instructions=system_prompt or default_system_prompt(),
+            tools=[get_order_status],
+        )
 
-    def _execute_tool(self, call: ToolCall) -> dict[str, Any]:
-        if call.name != TOOL_NAME:
-            return {"ok": False, "error": f"unknown tool: {call.name}"}
-        try:
-            return get_order_status(call.arguments.get("order_id", ""))
-        except (TypeError, ValueError) as exc:
-            return {"ok": False, "error": str(exc)}
+    @property
+    def is_mock(self) -> bool:
+        return self.agent.model.model_name == "mock"
 
-    def run(self, user_message: str) -> AgentResponse:
-        verdict = check_input(user_message)
+    def run(self, message: str) -> AgentResponse:
+        verdict = check_input(message)
         if verdict.action != "proceed":
-            return self._handle_guardrail(verdict, sources=[])
+            return AgentResponse(DECLINES[verdict.action], verdict.action, guardrail=verdict)
 
-        sources, context = self._retrieve(user_message)
-        messages: list[dict] = [
-            {"role": "system", "content": self.system_prompt},
-            {"role": "system", "content": context},
-            {"role": "user", "content": user_message},
-        ]
-
-        steps = 0
-        tool_claims: set[str] = set()
-        while steps < self.max_turns:
-            steps += 1
-            result = self.llm.chat(messages, tools=self.tools)
-            if result.tool_calls:
-                messages.append({
-                    "role": "assistant",
-                    "content": result.content,
-                    "tool_calls": [
-                        {
-                            "id": tc.id,
-                            "type": "function",
-                            "function": {
-                                "name": tc.name,
-                                "arguments": json.dumps(tc.arguments),
-                            },
-                        }
-                        for tc in result.tool_calls
-                    ],
-                })
-                for tc in result.tool_calls:
-                    tool_msg = self._execute_tool(tc)
-                    if isinstance(tool_msg, dict) and tool_msg.get("found") is True:
-                        tool_claims |= extract_known_claims(
-                            str(tool_msg.get("estimated_delivery", ""))
-                        )
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tc.id,
-                        "content": json.dumps(tool_msg, ensure_ascii=False),
-                    })
-                continue
-
-            answer = result.content.strip()
-            if not answer:
-                break
-            out_verdict = check_output(answer, known_extra=tool_claims)
-            return AgentResponse(
-                answer=answer,
-                action=self._map_output_action(out_verdict),
-                sources=sources,
-                guardrail=out_verdict,
-                raw_steps=steps,
-            )
-
-        return AgentResponse(
-            answer=(
-                "I could not get an answer from the model within the allowed "
-                f"attempts. Please contact {SUPPORT_EMAIL}."
-            ),
-            action="refer",
-            sources=sources,
-            raw_steps=steps,
-        )
-
-    def _retrieve(self, user_message: str) -> tuple[list[int], str]:
+        sources = self._retrieve(message)
         try:
-            results = self.retriever.retrieve(user_message, top_k=self.top_k)
-        except Exception:  # noqa: BLE001 - no retrieval means no context
+            result = self.agent.run_sync(
+                message, instructions=_context(sources), usage_limits=self.usage_limits
+            )
+        except AgentRunError:
+            log.exception("model run failed")
+            return AgentResponse(UNAVAILABLE, "refer", sources)
+
+        answer = result.output.strip()
+        out_verdict = check_output(answer, known_extra=self._tool_claims(result.all_messages()))
+        action = {"proceed": "answer", "escalate": "escalate"}.get(out_verdict.action, "refer")
+        return AgentResponse(answer, action, sources, out_verdict)
+
+    def _retrieve(self, message: str) -> list[int]:
+        try:
+            results = self.retriever.retrieve(message, top_k=self.top_k)
+        except Exception as exc:  # noqa: BLE001 - any retriever failure degrades the same way
+            log.warning("retrieval failed, answering without context: %s", exc)
             results = []
-        if not results:
-            return [], self._no_context_prompt()
-        sources = [DOCUMENTS.index(r.document) for r in results]
-        sources = list(dict.fromkeys(sources))
-        return sources, _grounding_prompt(sources)
+        ids = [doc.id for doc in DOCUMENTS]
+        return list(dict.fromkeys(ids.index(r.doc_id) for r in results))
 
-    def _no_context_prompt(self) -> str:
-        return (
-            "No document is relevant to this question. Say you do not have that "
-            f"information and suggest contacting {SUPPORT_EMAIL}."
-        )
-
-    def _handle_guardrail(self, verdict: GuardrailVerdict, sources: list[int]) -> AgentResponse:
-        action_messages = {
-            "refer": (
-                "A human agent has to handle this topic. Please write to "
-                f"{SUPPORT_EMAIL}."
-            ),
-            "escalate": (
-                "This amount needs approval from a human supervisor; the AI "
-                f"assistant cannot resolve it. Please write to {SUPPORT_EMAIL}."
-            ),
-            "block": (
-                "I cannot process this request because it is outside the scope "
-                "of TiendaHogar support."
-            ),
-        }
-        answer = action_messages.get(
-            verdict.action,
-            (
-                "I do not have information to answer that question. Please "
-                f"contact {SUPPORT_EMAIL}."
-            ),
-        )
-        return AgentResponse(
-            answer=answer,
-            action=verdict.action,
-            sources=sources,
-            guardrail=verdict,
-        )
-
-    def _map_output_action(self, verdict: GuardrailVerdict) -> str:
-        return {
-            "proceed": "answer",
-            "escalate": "escalate",
-        }.get(verdict.action, "refer")
+    @staticmethod
+    def _tool_claims(messages: list) -> set[str]:
+        """Deadlines returned by the order tool count as grounded facts."""
+        claims: set[str] = set()
+        for message in messages:
+            if not isinstance(message, ModelRequest):
+                continue
+            for part in message.parts:
+                if isinstance(part, ToolReturnPart) and isinstance(part.content, dict):
+                    claims |= extract_known_claims(str(part.content.get("estimated_delivery", "")))
+        return claims
 
 
 def build_agent(settings=None) -> SupportAgent:
     """Build the full agent from the settings."""
     from tiendahogar.config import get_settings
-    from tiendahogar.llm import build_client
     from tiendahogar.retrieval import build_retriever
 
     settings = settings or get_settings()
     return SupportAgent(
-        llm=build_client(settings),
+        model=build_model(settings.llm_model),
         retriever=build_retriever(settings),
-        max_turns=settings.max_turns,
         top_k=settings.top_k,
+        max_requests=settings.max_requests,
         system_prompt=settings.system_prompt_text,
     )

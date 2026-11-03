@@ -11,15 +11,17 @@ Commands:
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 from importlib.metadata import PackageNotFoundError, version
 
+from dotenv import load_dotenv
 from rich.console import Console
 from rich.markup import escape
 from rich.panel import Panel
 from rich.prompt import Prompt
 
-from tiendahogar.agent import AgentResponse, build_agent
+from tiendahogar.agent import AgentResponse, SupportAgent, build_agent
 from tiendahogar.config import Settings, get_settings
 
 console = Console()
@@ -28,9 +30,9 @@ EXIT_WORDS = {"exit", "quit", "q"}
 ACTION_STYLES = {"answer": "green", "refer": "yellow", "escalate": "red", "block": "red"}
 
 
-def describe_settings(settings: Settings) -> str:
+def describe_settings(settings: Settings, agent: SupportAgent) -> str:
     """One line with the active model, retrieval backend and reranking."""
-    llm = settings.llm_model if settings.has_llm_key else "mock (no API key)"
+    llm = "mock (offline)" if agent.is_mock else settings.llm_model
     retrieval = (
         f"semantic ({settings.embedding_model})" if settings.embedding_model else "lexical (BM25)"
     )
@@ -58,7 +60,7 @@ def chat() -> int:
         Panel(
             "[bold]TiendaHogar support agent[/bold]\n"
             "Type your question, or 'exit' to quit.\n"
-            f"[dim]{escape(describe_settings(settings))}[/dim]",
+            f"[dim]{escape(describe_settings(settings, agent))}[/dim]",
             border_style="cyan",
         )
     )
@@ -76,8 +78,9 @@ def chat() -> int:
 
 def ask(question: str) -> int:
     settings = get_settings()
-    console.print(f"[dim]{escape(describe_settings(settings))}[/dim]")
-    print_response(build_agent(settings).run(question))
+    agent = build_agent(settings)
+    console.print(f"[dim]{escape(describe_settings(settings, agent))}[/dim]")
+    print_response(agent.run(question))
     return 0
 
 
@@ -108,9 +111,13 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    # Provider API keys are read from the environment by Pydantic AI.
+    load_dotenv()
+    logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
     if args.version:
+        settings = get_settings()
         print(f"tiendahogar {package_version()}")
-        print(describe_settings(get_settings()))
+        print(describe_settings(settings, build_agent(settings)))
         return 0
     if args.command == "ask":
         return ask(args.question)

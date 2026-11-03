@@ -12,25 +12,28 @@ settings) so they survive the refactor of the internals.
 import logging
 
 import pytest
+from pydantic_ai.exceptions import ModelHTTPError
+from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart
+from pydantic_ai.models.function import FunctionModel
 
 from tiendahogar import cli
-from tiendahogar.agent import SupportAgent
+from tiendahogar.agent import SupportAgent, build_model
 from tiendahogar.config import Settings
 from tiendahogar.guardrails import check_input, check_output
-from tiendahogar.llm import LiteLLMClient, LLMResult, MockLLM, ToolCall, build_client
+from tiendahogar.mock import mock_model
 from tiendahogar.retrieval import LexicalRetriever, build_retriever
 
 bug = pytest.mark.xfail(strict=True)
 
 
-class ScriptedLLM:
-    """Fake LLM that replays a fixed list of results, one per call."""
+def scripted(*responses: ModelResponse) -> FunctionModel:
+    """Model that replays a fixed list of responses, one per request."""
+    queue = list(responses)
+    return FunctionModel(lambda messages, info: queue.pop(0))
 
-    def __init__(self, *results: LLMResult):
-        self.results = list(results)
 
-    def chat(self, messages, tools=None):
-        return self.results.pop(0)
+def text(content: str) -> ModelResponse:
+    return ModelResponse(parts=[TextPart(content)])
 
 
 class FailingRetriever:
@@ -38,8 +41,8 @@ class FailingRetriever:
         raise ConnectionError("embedding server down")
 
 
-def make_agent(llm, retriever=None) -> SupportAgent:
-    return SupportAgent(llm=llm, retriever=retriever or LexicalRetriever())
+def make_agent(model, retriever=None) -> SupportAgent:
+    return SupportAgent(model=model, retriever=retriever or LexicalRetriever())
 
 
 # --------------------------------------------------------------------------- #
@@ -48,7 +51,7 @@ def make_agent(llm, retriever=None) -> SupportAgent:
 @bug
 def test_ungrounded_answer_is_not_delivered():
     invented = "You have 45 days to return your product."
-    resp = make_agent(ScriptedLLM(LLMResult(content=invented))).run(
+    resp = make_agent(scripted(text(invented))).run(
         "How long do I have to return a product?"
     )
     assert resp.action == "refer"
@@ -71,32 +74,24 @@ def test_support_email_does_not_skip_grounding():
 
 @bug
 def test_context_uses_the_same_citation_format_as_the_system_prompt():
-    llm = ScriptedLLM(LLMResult(content="ok"))
-    seen: list = []
-    original_chat = llm.chat
+    seen: list[str] = []
 
-    def spy(messages, tools=None):
-        seen.extend(messages)
-        return original_chat(messages, tools)
+    def spy(messages, info):
+        seen.append(info.instructions or "")
+        return text("ok")
 
-    llm.chat = spy
-    make_agent(llm).run("How long is the warranty on a refrigerator?")
-    context = "\n".join(m["content"] for m in seen if m["role"] == "system")
-    assert "[source:" not in context
+    make_agent(FunctionModel(spy)).run("How long is the warranty on a refrigerator?")
+    assert "[source:" not in seen[0]
 
 
 # --------------------------------------------------------------------------- #
 # LLM and tool robustness
 # --------------------------------------------------------------------------- #
-@bug
-def test_provider_error_is_not_shown_to_the_customer(monkeypatch):
-    import litellm
+def test_provider_error_is_not_shown_to_the_customer():
+    def boom(messages, info):
+        raise ModelHTTPError(503, "groq:x", body="upstream 503")
 
-    def boom(**kwargs):
-        raise RuntimeError("upstream 503")
-
-    monkeypatch.setattr(litellm, "completion", boom)
-    resp = make_agent(LiteLLMClient(model="groq/x", api_key="k")).run(
+    resp = make_agent(FunctionModel(boom)).run(
         "How long is the warranty on a refrigerator?"
     )
     assert resp.action == "refer"
@@ -104,21 +99,18 @@ def test_provider_error_is_not_shown_to_the_customer(monkeypatch):
     assert "Model error" not in resp.answer
 
 
-@bug
 def test_malformed_tool_arguments_do_not_crash():
-    llm = ScriptedLLM(
-        LLMResult(tool_calls=[ToolCall(id="1", name="get_order_status",
-                                       arguments="ORD-1001")]),
-        LLMResult(content="Your order is in transit."),
+    model = scripted(
+        ModelResponse(parts=[ToolCallPart("get_order_status", "ORD-1001")]),
+        text("Your order is in transit."),
     )
-    resp = make_agent(llm).run("Where is my order ORD-1001?")
+    resp = make_agent(model).run("Where is my order ORD-1001?")
     assert resp.answer
 
 
-@bug
 def test_retrieval_failure_is_logged(caplog):
     caplog.set_level(logging.WARNING)
-    make_agent(MockLLM(), retriever=FailingRetriever()).run("Warranty?")
+    make_agent(mock_model(), retriever=FailingRetriever()).run("Warranty?")
     assert any("embedding server down" in r.getMessage() for r in caplog.records)
 
 
@@ -165,20 +157,20 @@ def test_rerank_is_not_pointed_at_the_embeddings_server():
 # --------------------------------------------------------------------------- #
 # Configuration and CLI
 # --------------------------------------------------------------------------- #
-@bug
-def test_keyless_local_provider_does_not_fall_back_to_mock():
-    client = build_client(Settings(llm_model="ollama/llama3.2"))
-    assert not isinstance(client, MockLLM)
+def test_keyless_local_provider_does_not_fall_back_to_mock(monkeypatch):
+    monkeypatch.setenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+    assert build_model("ollama:llama3.2").model_name != "mock"
 
 
-@bug
 def test_missing_system_prompt_file_is_an_error():
-    with pytest.raises((FileNotFoundError, ValueError)):
-        _ = Settings(system_prompt="prompts/does-not-exist.txt").system_prompt_text
+    with pytest.raises(ValueError, match="system_prompt_file"):
+        Settings(system_prompt_file="prompts/does-not-exist.txt")
 
 
 def test_answer_text_is_not_parsed_as_rich_markup(monkeypatch, capsys):
     class FakeAgent:
+        is_mock = True
+
         def run(self, query):
             from tiendahogar.agent import AgentResponse
 

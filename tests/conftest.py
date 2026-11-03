@@ -9,7 +9,7 @@ import os
 
 import pytest
 
-from tiendahogar import config
+from tiendahogar import cli, config
 
 #: Settings fields that can leak in from the environment or ``.env``.
 _SETTINGS_ENV = {name.upper() for name in config.Settings.model_fields}
@@ -17,11 +17,12 @@ _SETTINGS_ENV = {name.upper() for name in config.Settings.model_fields}
 
 @pytest.fixture(autouse=True)
 def _hermetic_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    # LiteLLM calls load_dotenv() at import time, so the real .env may already
-    # be in os.environ: strip every Settings variable and any *_API_KEY.
+    # Strip every Settings variable and any provider key or endpoint.
     for name in list(os.environ):
-        if name in _SETTINGS_ENV or name.endswith("_API_KEY"):
+        if name in _SETTINGS_ENV or name.endswith(("_API_KEY", "_BASE_URL")):
             monkeypatch.delenv(name, raising=False)
-    # Never read the developer's .env file.
+    # Never read the developer's .env file, neither through Settings nor
+    # through the CLI's load_dotenv() (which feeds the provider keys).
     monkeypatch.setitem(config.Settings.model_config, "env_file", None)
+    monkeypatch.setattr(cli, "load_dotenv", lambda *args, **kwargs: False)
     config.get_settings.cache_clear()

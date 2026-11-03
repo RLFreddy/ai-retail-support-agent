@@ -3,14 +3,14 @@
 import pytest
 
 from tiendahogar import cli
-from tiendahogar.agent import AgentResponse
+from tiendahogar.agent import AgentResponse, build_agent
 from tiendahogar.config import Settings
 
 
 def test_ask_answers_in_mock_mode(capsys):
     assert cli.main(["ask", "How long is the warranty on a refrigerator?"]) == 0
     out = capsys.readouterr().out.lower()
-    assert "mock (no api key)" in out
+    assert "mock (offline)" in out
     assert "warranty" in out
 
 
@@ -40,20 +40,18 @@ def test_version_prints_package_and_settings(monkeypatch, capsys):
     assert "retrieval: lexical (BM25)" in out
 
 
-@pytest.mark.parametrize(
-    ("overrides", "expected"),
-    [
-        ({}, "LLM: mock (no API key) · retrieval: lexical (BM25) · rerank: off"),
-        (
-            {"groq_api_key": "gsk-x", "embedding_model": "BAAI/bge-m3",
-             "rerank_url": "http://localhost:8001/rerank"},
-            "LLM: groq/openai/gpt-oss-20b · retrieval: semantic (BAAI/bge-m3) · rerank: on",
-        ),
-    ],
-)
-def test_describe_settings(overrides, expected):
-    # Settings are built inside the test, after the hermetic fixture ran.
-    assert cli.describe_settings(Settings(**overrides)) == expected
+def test_describe_settings_without_key_shows_the_mock():
+    settings = Settings()
+    expected = "LLM: mock (offline) · retrieval: lexical (BM25) · rerank: off"
+    assert cli.describe_settings(settings, build_agent(settings)) == expected
+
+
+def test_describe_settings_with_key_shows_the_model(monkeypatch):
+    monkeypatch.setenv("GROQ_API_KEY", "gsk-test")
+    settings = Settings(embedding_model="BAAI/bge-m3", rerank_url="http://localhost:8001/rerank")
+    assert cli.describe_settings(settings, build_agent(settings)) == (
+        "LLM: groq:openai/gpt-oss-20b · retrieval: semantic (BAAI/bge-m3) · rerank: on"
+    )
 
 
 def test_guardrail_responses_are_shown_in_a_panel(capsys):

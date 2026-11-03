@@ -13,6 +13,7 @@ nothing and the agent has no context to answer from.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -24,6 +25,9 @@ from bm25s.stopwords import STOPWORDS_EN
 from openai import OpenAI
 
 from tiendahogar.knowledge import DOCUMENTS, Document
+
+# bm25s sets its own logger to DEBUG on import.
+logging.getLogger("bm25s").setLevel(logging.WARNING)
 
 #: bm25s' English list plus the question words customers type, which carry no
 #: topic ("how long does a refund take" is about refunds, not about "how").

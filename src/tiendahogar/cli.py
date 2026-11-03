@@ -7,7 +7,7 @@ Tres modos:
 - ``tiendahogar --query <pregunta>`` (o ``--query=<pregunta>``): responde una
   sola consulta y termina (modo programático/prueba).
 
-Uso: ``tiendahogar``  o  ``python -m src.cli``
+Uso: ``tiendahogar``  o  ``python -m tiendahogar.cli``
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from __future__ import annotations
 import sys
 from importlib.metadata import PackageNotFoundError, version
 
-from src.config import get_settings
+from tiendahogar.config import get_settings
 
 from . import cli_rich
 

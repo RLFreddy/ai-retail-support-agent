@@ -9,7 +9,7 @@ import os
 
 import pytest
 
-from src import config
+from tiendahogar import config
 
 #: Settings fields that can leak in from the environment or ``.env``.
 _SETTINGS_ENV = {name.upper() for name in config.Settings.model_fields}

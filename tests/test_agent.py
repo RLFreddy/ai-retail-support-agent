@@ -7,9 +7,9 @@ Se usa MockLLM (sin red) + TfidfRetriever (offline). Verifica:
 - Sin contexto: el agente no inventa.
 """
 
-from src.agent import SupportAgent
-from src.llm import MockLLM, ToolCall
-from src.retrieval import TfidfRetriever
+from tiendahogar.agent import SupportAgent
+from tiendahogar.llm import MockLLM, ToolCall
+from tiendahogar.retrieval import TfidfRetriever
 
 
 def build_agent(responses: dict[str, str] | None = None) -> SupportAgent:

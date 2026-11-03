@@ -7,7 +7,7 @@ Cubre el requisito mínimo de la prueba técnica:
 
 import inspect
 
-from src.tools import ORDERS, consultar_estado_pedido
+from tiendahogar.tools import ORDERS, consultar_estado_pedido
 
 
 def test_firma_exacta_requerida():

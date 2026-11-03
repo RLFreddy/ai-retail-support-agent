@@ -18,10 +18,10 @@ import pytest
 from rich.console import Console
 from textual.widgets import RichLog
 
-from src import cli
-from src.cli_rich import render_variant, variant_label, variant_short
-from src.cli_textual import SupportChatApp
-from src.config import Settings
+from tiendahogar import cli
+from tiendahogar.cli_rich import render_variant, variant_label, variant_short
+from tiendahogar.cli_textual import SupportChatApp
+from tiendahogar.config import Settings
 
 
 class _FakeSettings:
@@ -161,7 +161,7 @@ def test_regresion_ui_rich_no_crash(monkeypatch):
 def test_textual_fallback_a_rich_si_import_falla(monkeypatch):
     llamadas = []
     monkeypatch.setattr(cli.cli_rich, "run_rich", lambda: llamadas.append(1) or 0)
-    monkeypatch.setitem(sys.modules, "src.cli_textual", None)
+    monkeypatch.setitem(sys.modules, "tiendahogar.cli_textual", None)
     assert cli._run_interactive("textual") == 0
     assert llamadas == [1]
 

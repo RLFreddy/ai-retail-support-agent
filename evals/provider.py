@@ -25,10 +25,10 @@ DEFAULT_TEI_URL = "http://localhost:8080/v1"
 
 
 def build_agent(config: dict):
-    from src.agent import SupportAgent
-    from src.config import Settings
-    from src.llm import MockLLM, build_client
-    from src.retrieval import build_retriever
+    from tiendahogar.agent import SupportAgent
+    from tiendahogar.config import Settings
+    from tiendahogar.llm import MockLLM, build_client
+    from tiendahogar.retrieval import build_retriever
 
     backend = config.get("embedding_backend", "offline")
     overrides: dict = {"embedding_backend": backend, "rerank_enabled": config.get("rerank", False)}

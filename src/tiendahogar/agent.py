@@ -20,17 +20,17 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
-from src.guardrails import (
+from tiendahogar.guardrails import (
     SUPPORT_EMAIL,
     GuardrailVerdict,
     check_input,
     check_output,
     extract_known_claims,
 )
-from src.knowledge import DOCUMENTS, default_system_prompt
-from src.llm import LLMClient, ToolCall
-from src.retrieval import BaseRetriever
-from src.tools import TOOL_SCHEMA, consultar_estado_pedido
+from tiendahogar.knowledge import DOCUMENTS, default_system_prompt
+from tiendahogar.llm import LLMClient, ToolCall
+from tiendahogar.retrieval import BaseRetriever
+from tiendahogar.tools import TOOL_SCHEMA, consultar_estado_pedido
 
 TOOL_NAME = "consultar_estado_pedido"
 
@@ -215,9 +215,9 @@ class SupportAgent:
 # --------------------------------------------------------------------------- #
 def build_agent(settings=None) -> SupportAgent:
     """Construye el agente completo desde Settings."""
-    from src.config import get_settings
-    from src.llm import build_client
-    from src.retrieval import build_retriever
+    from tiendahogar.config import get_settings
+    from tiendahogar.llm import build_client
+    from tiendahogar.retrieval import build_retriever
 
     settings = settings or get_settings()
     return SupportAgent(

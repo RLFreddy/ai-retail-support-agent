@@ -6,7 +6,7 @@ ejecución delega en la tabla mock sin inventar información.
 
 import asyncio
 
-from src.mcp_server import mcp
+from tiendahogar.mcp_server import mcp
 
 
 def _tools():

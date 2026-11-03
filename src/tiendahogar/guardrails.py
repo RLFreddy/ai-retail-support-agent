@@ -22,7 +22,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from src.knowledge import DOCUMENTS
+from tiendahogar.knowledge import DOCUMENTS
 
 SUPPORT_EMAIL = "soporte@tiendahogar.example"
 

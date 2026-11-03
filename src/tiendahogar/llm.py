@@ -16,9 +16,9 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
-from src.config import provider_key_env
-from src.knowledge import DOCUMENTS
-from src.retrieval import _tokenize
+from tiendahogar.config import provider_key_env
+from tiendahogar.knowledge import DOCUMENTS
+from tiendahogar.retrieval import _tokenize
 
 
 @dataclass(frozen=True)
@@ -198,7 +198,7 @@ class MockLLM:
 
 def build_client(settings=None) -> LLMClient:
     """Construye el cliente LLM según la configuración."""
-    from src.config import get_settings
+    from tiendahogar.config import get_settings
 
     settings = settings or get_settings()
     if not settings.has_llm_key:

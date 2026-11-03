@@ -13,12 +13,12 @@ import logging
 
 import pytest
 
-from src import cli_rich
-from src.agent import SupportAgent
-from src.config import Settings
-from src.guardrails import check_input, check_output
-from src.llm import LiteLLMClient, LLMResult, MockLLM, ToolCall, build_client
-from src.retrieval import TfidfRetriever, build_retriever
+from tiendahogar import cli_rich
+from tiendahogar.agent import SupportAgent
+from tiendahogar.config import Settings
+from tiendahogar.guardrails import check_input, check_output
+from tiendahogar.llm import LiteLLMClient, LLMResult, MockLLM, ToolCall, build_client
+from tiendahogar.retrieval import TfidfRetriever, build_retriever
 
 bug = pytest.mark.xfail(strict=True)
 
@@ -190,7 +190,7 @@ def test_missing_system_prompt_file_is_an_error():
 def test_answer_text_is_not_parsed_as_rich_markup(monkeypatch, capsys):
     class FakeAgent:
         def run(self, query):
-            from src.agent import AgentResponse
+            from tiendahogar.agent import AgentResponse
 
             return AgentResponse(answer="Usa el código [/red] al pagar", action="answer")
 

@@ -7,8 +7,8 @@ from rich.panel import Panel
 from rich.prompt import Prompt
 from rich.table import Table
 
-from src.agent import build_agent
-from src.config import Settings, get_settings
+from tiendahogar.agent import build_agent
+from tiendahogar.config import Settings, get_settings
 
 console = Console()
 

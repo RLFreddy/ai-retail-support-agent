@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src"]
+packages = ["src/tiendahogar"]
 
 [project]
 name = "tiendahogar-support-agent"
@@ -29,7 +29,7 @@ dev = [
 ]
 
 [project.scripts]
-tiendahogar = "src.cli:main"
+tiendahogar = "tiendahogar.cli:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

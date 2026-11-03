@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Sonda (smoke test) del servidor MCP de TiendaHogar.
 
-Levanta el servidor real (``uv run python -m src.mcp_server``) como subproceso
+Levanta el servidor real (``uv run python -m tiendahogar.mcp_server``) como subproceso
 con transporte stdio, se conecta como cliente MCP, lista las tools expuestas y
 hace dos llamadas: un pedido válido (ORD-1002) y uno inexistente (ORD-9999).
 
@@ -30,7 +30,7 @@ def _ordenar(ids: list[str]) -> str:
 async def main() -> int:
     parametros = StdioServerParameters(
         command=sys.executable,
-        args=["-m", "src.mcp_server"],
+        args=["-m", "tiendahogar.mcp_server"],
         env=None,
     )
 

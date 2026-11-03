@@ -7,9 +7,9 @@ También cubre el retriever semántico y el toggle de rerank (sin red: stubs).
 
 import types
 
-from src.config import Settings
-from src.knowledge import Document
-from src.retrieval import SemanticRetriever, TfidfRetriever, build_retriever
+from tiendahogar.config import Settings
+from tiendahogar.knowledge import Document
+from tiendahogar.retrieval import SemanticRetriever, TfidfRetriever, build_retriever
 
 _DOCS = [
     Document(id="d0", title="Garantía", content="Garantía de electrodomésticos."),

@@ -2,14 +2,14 @@
 
 Los servidores MCP consumen un JSON-RPC por stdio (o SSE); el agente queda
 independiente: FastMCP genera el schema de la tool desde la firma/docstring.
-Ejecutar: ``uv run python -m src.mcp_server``
+Ejecutar: ``uv run python -m tiendahogar.mcp_server``
 """
 
 from __future__ import annotations
 
 from fastmcp import FastMCP
 
-from src.tools import consultar_estado_pedido
+from tiendahogar.tools import consultar_estado_pedido
 
 mcp = FastMCP("tiendahogar")
 

@@ -13,7 +13,7 @@ from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from src.knowledge import default_system_prompt
+from tiendahogar.knowledge import default_system_prompt
 
 #: Variable de entorno de la API key por proveedor LiteLLM.
 PROVIDER_KEY_ENV: dict[str, str] = {

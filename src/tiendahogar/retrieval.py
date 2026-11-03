@@ -32,7 +32,7 @@ from typing import Protocol
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
-from src.knowledge import DOCUMENTS, Document
+from tiendahogar.knowledge import DOCUMENTS, Document
 
 
 @dataclass(frozen=True)
@@ -237,7 +237,7 @@ def build_retriever(settings=None) -> BaseRetriever:
     local por HTTP a ``/rerank`` (``tei_rerank_model``); con backends en la nube
     (openrouter/openai/gemini) usa ``litellm.rerank`` (``rerank_model``).
     """
-    from src.config import EMBEDDING_KEY_ENV, get_settings
+    from tiendahogar.config import EMBEDDING_KEY_ENV, get_settings
 
     settings = settings or get_settings()
     backend = settings.embedding_backend

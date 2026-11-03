@@ -9,13 +9,13 @@ run: ## Demo por defecto (modo mock, sin red)
 	docker run --rm $(ENV_FILE) tiendahogar
 
 repl: ## REPL interactiva de rich (requiere TTY)
-	docker run --rm -it $(ENV_FILE) -e UI=rich tiendahogar python -m src.cli --plain
+	docker run --rm -it $(ENV_FILE) -e UI=rich tiendahogar python -m tiendahogar.cli --plain
 
 tui: ## TUI interactiva de Textual (requiere TTY)
-	docker run --rm -it $(ENV_FILE) -e UI=textual tiendahogar python -m src.cli
+	docker run --rm -it $(ENV_FILE) -e UI=textual tiendahogar python -m tiendahogar.cli
 
 query: ## Respuesta a una consulta: make query Q="¿Dónde está mi pedido ORD-1002?"
-	docker run --rm $(ENV_FILE) tiendahogar python -m src.cli --query "$$Q"
+	docker run --rm $(ENV_FILE) tiendahogar python -m tiendahogar.cli --query "$$Q"
 
 PROMPTFOO := PROMPTFOO_PYTHON=$(CURDIR)/.venv/bin/python PROMPTFOO_DISABLE_TELEMETRY=1 \
 	npx -y promptfoo@0.124.1
@@ -29,7 +29,7 @@ bench: ## Variant matrix with the real model (needs the API key and the TEI cont
 	$(PROMPTFOO) eval -c evals/promptfooconfig.bench.yaml --no-cache --env-file .env
 
 version: ## Versión y variante del agente
-	docker run --rm tiendahogar python -m src.cli --version
+	docker run --rm tiendahogar python -m tiendahogar.cli --version
 
 shell: ## Shell interactivo dentro del contenedor
 	docker run --rm -it $(ENV_FILE) -e UI=rich tiendahogar sh

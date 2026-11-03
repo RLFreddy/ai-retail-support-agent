@@ -6,7 +6,7 @@ Requisitos mínimos de la prueba:
 - El agente no debe inventar información.
 """
 
-from src.guardrails import check_input, check_output
+from tiendahogar.guardrails import check_input, check_output
 
 
 class TestInputReembolso:

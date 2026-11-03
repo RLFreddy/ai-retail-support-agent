@@ -7,9 +7,9 @@ import sys
 from textual.app import App, ComposeResult
 from textual.widgets import Footer, Header, Input, RichLog
 
-from src.agent import build_agent
-from src.cli_rich import render_variant
-from src.config import get_settings
+from tiendahogar.agent import build_agent
+from tiendahogar.cli_rich import render_variant
+from tiendahogar.config import get_settings
 
 
 class SupportChatApp(App):

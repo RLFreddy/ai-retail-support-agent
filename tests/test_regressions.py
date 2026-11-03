@@ -1,12 +1,8 @@
 """Regression tests for the defects found in the v0.1.0 audit.
 
-Each test describes the *correct* behavior and is marked
-``xfail(strict=True)`` while the bug exists: once a fix lands the test starts
-passing, strict mode turns that into a failure, and the marker must be removed.
-That keeps CI green without letting a bug be "fixed" without proof.
-
-The tests go through public entry points (agent, guardrails, retriever,
-settings) so they survive the refactor of the internals.
+Each one was written first as a strict ``xfail`` that described the correct
+behavior, and the marker was removed by the commit that fixed the defect, so
+every fix in the history comes with its proof.
 """
 
 import logging
@@ -23,8 +19,6 @@ from tiendahogar.domain import AgentReply
 from tiendahogar.guardrails import check_input, check_output
 from tiendahogar.mock import mock_model
 from tiendahogar.retrieval import LexicalRetriever, build_retriever
-
-bug = pytest.mark.xfail(strict=True)
 
 
 def scripted(*responses: ModelResponse) -> FunctionModel:
@@ -49,23 +43,21 @@ def make_agent(model, retriever=None) -> SupportAgent:
 # --------------------------------------------------------------------------- #
 # Output grounding
 # --------------------------------------------------------------------------- #
-@bug
 def test_ungrounded_answer_is_not_delivered():
     invented = "You have 45 days to return your product."
-    resp = make_agent(scripted(text(invented))).run(
+    # The model insists on the invented deadline after the retry.
+    resp = make_agent(scripted(text(invented), text(invented))).run(
         "How long do I have to return a product?"
     )
     assert resp.action == "refer"
     assert "45 days" not in resp.answer
 
 
-@bug
 def test_plain_days_claim_is_verified():
     verdict = check_output("Your refund arrives in 37 days.")
     assert verdict.action != "answer"
 
 
-@bug
 def test_support_email_does_not_skip_grounding():
     verdict = check_output(
         "You have 45 business days to return it; questions to support@tiendahogar.example"
@@ -73,7 +65,6 @@ def test_support_email_does_not_skip_grounding():
     assert verdict.action != "answer"
 
 
-@bug
 def test_context_uses_the_same_citation_format_as_the_system_prompt():
     seen: list[str] = []
 

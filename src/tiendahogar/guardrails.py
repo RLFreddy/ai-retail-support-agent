@@ -20,7 +20,7 @@ from __future__ import annotations
 import re
 
 from tiendahogar.domain import Action, Verdict
-from tiendahogar.knowledge import DOCUMENTS, SUPPORT_EMAIL
+from tiendahogar.knowledge import DOCUMENTS
 from tiendahogar.money import REFUND_LIMIT, largest_amount
 
 _REFUND_RE = re.compile(r"\b(refund(ed|s)?|reimburse(ment)?|money back)\b", re.IGNORECASE)
@@ -54,8 +54,12 @@ _SENSITIVE_RE = re.compile(
     re.IGNORECASE,
 )
 
-#: "(quantity, time unit)" pairs used to ground the output.
-_CLAIM_RE = re.compile(r"(\d+\s*(?:business days?|months?|weeks?|years?))", re.IGNORECASE)
+#: A deadline: "30 days", "2-3 business days", "5 to 10 business days", "12-month".
+_CLAIM_RE = re.compile(
+    r"\b(?P<low>\d+)(?:\s*(?:[-‐‑‒–—]|to)\s*(?P<high>\d+))?[\s‐‑‒–—-]*"
+    r"(?P<unit>business days?|days?|weeks?|months?|years?)\b",
+    re.IGNORECASE,
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -124,24 +128,23 @@ def _output_approves_large_refund(answer: str) -> bool:
 
 
 def extract_known_claims(text: str) -> set[str]:
-    """Extract normalized "(quantity, unit)" pairs (lowercase, single spaces)."""
-    return {re.sub(r"\s+", " ", c).lower() for c in _CLAIM_RE.findall(text)}
+    """Deadlines in ``text``, normalized: "2 to 3 business days" → "2-3 business day"."""
+    claims = set()
+    for match in _CLAIM_RE.finditer(text):
+        span = match["low"] + (f"-{match['high']}" if match["high"] else "")
+        claims.add(f"{span} {match['unit'].lower().removesuffix('s')}")
+    return claims
 
 
-def _output_claims_unknown_fact(answer: str, known_extra: set[str] | None = None) -> bool:
-    """True when the answer states a deadline found in no authorized source.
+#: Deadlines stated by the policy documents.
+_CORPUS_CLAIMS = frozenset(extract_known_claims(" ".join(d.content for d in DOCUMENTS)))
 
-    Authorized sources are the policy documents and ``known_extra`` (data
-    returned by the order tool, such as an order's estimated delivery).
-    """
-    if SUPPORT_EMAIL in answer.lower():
-        return False
-    claims = extract_known_claims(answer)
-    if not claims:
-        return False
-    known = extract_known_claims(" ".join(doc.content for doc in DOCUMENTS))
-    known |= known_extra or set()
-    return not claims <= known
+
+def unsupported_claims(answer: str, known_extra: set[str] | None = None) -> set[str]:
+    """Deadlines in the answer found neither in the documents nor in ``known_extra``
+    (data returned by the order tool, such as an order's estimated delivery)."""
+    known = _CORPUS_CLAIMS | extract_known_claims(" ".join(known_extra or ()))
+    return extract_known_claims(answer) - known
 
 
 def check_output(answer: str, known_extra: set[str] | None = None) -> Verdict:
@@ -152,7 +155,8 @@ def check_output(answer: str, known_extra: set[str] | None = None) -> Verdict:
     if _output_approves_large_refund(answer):
         return Verdict(Action.ESCALATE, "the answer approves a refund over $500")
 
-    if _output_claims_unknown_fact(answer, known_extra=known_extra):
-        return Verdict(Action.REFER, "the answer states deadlines without verified grounding")
+    unsupported = unsupported_claims(answer, known_extra)
+    if unsupported:
+        return Verdict(Action.REFER, f"deadlines not found in any source: {sorted(unsupported)}")
 
     return Verdict()

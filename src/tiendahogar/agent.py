@@ -3,8 +3,11 @@
 1. Input guardrail (``check_input``): refer, escalate or block before any model call.
 2. Retrieval over the knowledge base; the matches go into the instructions.
 3. A Pydantic AI run with the ``get_order_status`` tool and a request limit.
-4. Output guardrail (``check_output``) with grounding against the corpus and
-   the tool results.
+4. Output validation: an answer that states a deadline found in no document
+   or tool result gets one retry; if it still fails, the text is discarded and
+   the customer is referred to a human.
+5. Output guardrail: an answer that approves a refund over $500 is replaced by
+   the escalation message.
 
 ``run(message) -> AgentReply`` returns the answer, the action
 (answer | refer | escalate | block) and the indices of the retrieved documents.
@@ -14,14 +17,19 @@ from __future__ import annotations
 
 import logging
 
-from pydantic_ai import Agent
-from pydantic_ai.exceptions import AgentRunError, UserError
+from pydantic_ai import Agent, ModelRetry, RunContext
+from pydantic_ai.exceptions import AgentRunError, UnexpectedModelBehavior, UserError
 from pydantic_ai.messages import ModelRequest, ToolReturnPart
 from pydantic_ai.models import Model, infer_model
 from pydantic_ai.usage import UsageLimits
 
 from tiendahogar.domain import Action, AgentReply
-from tiendahogar.guardrails import check_input, check_output, extract_known_claims
+from tiendahogar.guardrails import (
+    check_input,
+    check_output,
+    extract_known_claims,
+    unsupported_claims,
+)
 from tiendahogar.knowledge import DOCUMENTS, SUPPORT_EMAIL, default_system_prompt
 from tiendahogar.mock import mock_model
 from tiendahogar.retrieval import Retriever
@@ -40,6 +48,10 @@ DECLINES = {
 }
 UNAVAILABLE = (
     f"I cannot answer right now. Please try again later or contact {SUPPORT_EMAIL}."
+)
+UNVERIFIED = (
+    "I could not confirm that answer in our policies. A human agent can help you at "
+    f"{SUPPORT_EMAIL}."
 )
 
 
@@ -60,11 +72,34 @@ def _context(sources: list[int]) -> str:
             "No document is relevant to this question. Say you do not have that "
             f"information and suggest contacting {SUPPORT_EMAIL}."
         )
-    blocks = [f"[source:{i}] {DOCUMENTS[i].title}\n{DOCUMENTS[i].content}" for i in sources]
+    blocks = [f"Document: {DOCUMENTS[i].title}\n{DOCUMENTS[i].content}" for i in sources]
     return (
-        "CONTEXT (answer ONLY from these documents; cite each fact with its "
-        "[source:N] tag):\n" + "\n\n".join(blocks)
+        "CONTEXT. Answer ONLY from these documents and cite each one you use as "
+        "(Source: <document title>).\n\n" + "\n\n".join(blocks)
     )
+
+
+def _tool_claims(messages: list) -> set[str]:
+    """Deadlines returned by the order tool count as grounded facts."""
+    claims: set[str] = set()
+    for message in messages:
+        if not isinstance(message, ModelRequest):
+            continue
+        for part in message.parts:
+            if isinstance(part, ToolReturnPart) and isinstance(part.content, dict):
+                claims |= extract_known_claims(str(part.content.get("estimated_delivery", "")))
+    return claims
+
+
+def _grounded(ctx: RunContext[None], output: str) -> str:
+    """Ask the model to retry an answer with deadlines found in no source."""
+    unsupported = unsupported_claims(output, _tool_claims(ctx.messages))
+    if unsupported:
+        raise ModelRetry(
+            f"These deadlines are not in the documents or the order data: "
+            f"{', '.join(sorted(unsupported))}. Answer again using only those sources."
+        )
+    return output
 
 
 class SupportAgent:
@@ -85,7 +120,9 @@ class SupportAgent:
             model,
             instructions=system_prompt or default_system_prompt(),
             tools=[get_order_status],
+            retries=1,
         )
+        self.agent.output_validator(_grounded)
 
     @property
     def is_mock(self) -> bool:
@@ -102,16 +139,22 @@ class SupportAgent:
             result = self.agent.run_sync(
                 message, instructions=_context(sources), usage_limits=self.usage_limits
             )
+        except UnexpectedModelBehavior as exc:
+            log.warning("no grounded answer after retrying: %s", exc)
+            return AgentReply(UNVERIFIED, Action.REFER, sources)
         except AgentRunError:
             log.exception("model run failed")
             return AgentReply(UNAVAILABLE, Action.REFER, sources)
 
         answer = result.output.strip()
-        verdict = check_output(answer, known_extra=self._tool_claims(result.all_messages()))
+        verdict = check_output(answer, known_extra=_tool_claims(result.all_messages()))
+        if verdict.action is Action.ESCALATE:
+            log.warning("output escalated: %s", verdict.reason)
+            return AgentReply(DECLINES[Action.ESCALATE], Action.ESCALATE, sources)
         if not verdict.passed:
-            log.info("output %s: %s", verdict.action, verdict.reason)
-        action = Action.REFER if verdict.action is Action.BLOCK else verdict.action
-        return AgentReply(answer, action, sources)
+            log.warning("output %s: %s", verdict.action, verdict.reason)
+            return AgentReply(UNAVAILABLE, Action.REFER, sources)
+        return AgentReply(answer, Action.ANSWER, sources)
 
     def _retrieve(self, message: str) -> list[int]:
         try:
@@ -121,18 +164,6 @@ class SupportAgent:
             results = []
         ids = [doc.id for doc in DOCUMENTS]
         return list(dict.fromkeys(ids.index(r.doc_id) for r in results))
-
-    @staticmethod
-    def _tool_claims(messages: list) -> set[str]:
-        """Deadlines returned by the order tool count as grounded facts."""
-        claims: set[str] = set()
-        for message in messages:
-            if not isinstance(message, ModelRequest):
-                continue
-            for part in message.parts:
-                if isinstance(part, ToolReturnPart) and isinstance(part.content, dict):
-                    claims |= extract_known_claims(str(part.content.get("estimated_delivery", "")))
-        return claims
 
 
 def build_agent(settings=None) -> SupportAgent:

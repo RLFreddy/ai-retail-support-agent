@@ -6,7 +6,7 @@ They use the offline mock model and the BM25 retriever: no network, no keys.
 import logging
 
 import pytest
-from pydantic_ai.messages import ModelResponse, ToolCallPart
+from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart
 from pydantic_ai.models.function import FunctionModel
 
 from tiendahogar.agent import SupportAgent, build_model
@@ -74,6 +74,27 @@ class TestTool:
 
         resp = build_agent(FunctionModel(loop)).run("Where is my order ORD-1001?")
         assert resp.action == "refer"
+
+
+class TestOutputValidation:
+    @staticmethod
+    def replay(*answers: str) -> FunctionModel:
+        queue = [ModelResponse(parts=[TextPart(a)]) for a in answers]
+        return FunctionModel(lambda messages, info: queue.pop(0))
+
+    def test_ungrounded_answer_is_retried_once(self):
+        model = self.replay(
+            "Refunds take 45 days.", "Refunds take 5-10 business days. (Source: Refunds)"
+        )
+        resp = build_agent(model).run("How long does a refund take?")
+        assert resp.action == "answer"
+        assert resp.answer == "Refunds take 5-10 business days. (Source: Refunds)"
+
+    def test_self_approved_large_refund_is_replaced_by_the_escalation(self):
+        model = self.replay("I approve your refund of $900 right away.")
+        resp = build_agent(model).run("How long does a refund take?")
+        assert resp.action == "escalate"
+        assert "approve" not in resp.answer
 
 
 class TestModelSelection:

@@ -134,5 +134,21 @@ class TestOutput:
         verdict = check_output("Refrigerators have a warranty of 12 months.")
         assert verdict.action == "answer"
 
+    @pytest.mark.parametrize(
+        "answer",
+        [
+            "Refunds take 5-10 business days.",
+            "Refunds take 5 to 10 business days.",
+            "Refunds take 5\u201110 business days.",  # non-breaking hyphen, as LLMs write it
+            "Refunds take 5 \u2013 10 business days.",
+            "Blenders have a 6-month warranty.",
+        ],
+    )
+    def test_policy_deadlines_pass_in_any_spelling(self, answer):
+        assert check_output(answer).action == "answer"
+
+    def test_plain_days_are_checked_too(self):
+        assert check_output("You can return it within 45 days.").action == "refer"
+
     def test_empty_answer_is_blocked(self):
         assert check_output("   ").action == "block"
